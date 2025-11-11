@@ -16,22 +16,30 @@ class PurchaseController extends Controller
     /** List + search + filter tipe item (opsional) */
     public function index(Request $r)
     {
-        $q = trim((string) $r->get('q', ''));
-        $status = $r->get('status'); // draft|posted
-        $type = $r->get('type'); // material|pendukung|finished (filter baris)
-        $supp = $r->get('supplier'); // supplier_id
+        // App\Http\Controllers\Purchasing\PurchaseController@index
+        $q = trim((string) request('q', ''));
+        $status = request('status'); // draft|posted
+        $supp = request('supplier'); // supplier_id
+        $range = request('range'); // "2025-11-01 s/d 2025-11-11"
 
-        $rows = PurchaseInvoice::query()
-            ->with(['supplier:id,name', 'warehouse:id,code,name'])
-            ->when($q, fn($w) => $w->q($q))
-            ->when($status, fn($w) => $w->where('status', $status))
-            ->when($supp, fn($w) => $w->where('supplier_id', $supp))
-            ->orderByDesc('date')->orderByDesc('id')
-            ->paginate(25)->withQueryString();
+        $rows = \App\Models\PurchaseInvoice::with('supplier')
+            ->when($q, fn($qq) => $qq->where(function ($w) use ($q) {
+                $w->where('code', 'like', "%{$q}%")
+                    ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$q}%"));
+            }))
+            ->when($status, fn($qq) => $qq->where('status', $status))
+            ->when($supp, fn($qq) => $qq->where('supplier_id', $supp))
+            ->when($range, function ($qq) use ($range) {
+                if (preg_match('~^\s*(\d{4}-\d{2}-\d{2})\s*s/d\s*(\d{4}-\d{2}-\d{2})\s*$~', $range, $m)) {
+                    $qq->whereBetween('date', [$m[1], $m[2]]);
+                }
+            })
+            ->orderByDesc('date')
+            ->paginate(20);
 
-        // info filter
-        $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
-        return view('purchasing.invoices.index', compact('rows', 'q', 'status', 'type', 'suppliers', 'supp'));
+        $suppliers = \App\Models\Supplier::orderBy('name')->get(['id', 'name']);
+
+        return view('purchasing.invoices.index', compact('q', 'status', 'supp', 'range', 'suppliers', 'rows'));
     }
 
     /** Tampilkan detail 1 invoice pembelian */

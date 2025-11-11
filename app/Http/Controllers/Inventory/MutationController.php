@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
+use App\Models\InventoryMutation;
+use App\Models\PurchaseInvoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -108,4 +110,78 @@ class MutationController extends Controller
             'totalOut' => $totalOut,
         ]);
     }
+
+    public function show(int $id)
+    {
+        // Ambil 1 mutasi + relasi untuk kebutuhan view
+        $mutation = InventoryMutation::query()
+            ->with([
+                'warehouse:id,name,code',
+                'lot:id,code,unit,unit_cost,item_id',
+                'lot.item:id,code,name',
+            ])
+            ->findOrFail($id);
+
+        // Prev/Next berdasarkan ID (sederhana & cepat)
+        $prev = InventoryMutation::where('id', '<', $mutation->id)
+            ->orderByDesc('id')->first(['id']);
+        $next = InventoryMutation::where('id', '>', $mutation->id)
+            ->orderBy('id')->first(['id']);
+
+        // Sumber: jika ref_code adalah kode invoice pembelian → cari purchase_invoice
+        $purchaseSource = null;
+        if ($mutation->ref_code) {
+            $pi = PurchaseInvoice::where('code', $mutation->ref_code)->first(['id', 'code']);
+            if ($pi) {
+                $purchaseSource = [
+                    'invoice_id' => $pi->id,
+                    'invoice_code' => $pi->code,
+                ];
+            }
+        }
+
+        // Sumber transfer partner (jika tipe transfer, cari pasangan IN/OUT dg ref_code & lot yang sama)
+        $transferPartner = null;
+        if (in_array($mutation->type, ['TRANSFER_IN', 'TRANSFER_OUT'], true) && $mutation->ref_code) {
+            $pair = InventoryMutation::query()
+                ->where('ref_code', $mutation->ref_code)
+                ->where('lot_id', $mutation->lot_id)
+                ->where('id', '!=', $mutation->id)
+                ->with('warehouse:id,name,code')
+                ->get(['id', 'warehouse_id', 'type']);
+
+            if ($pair->isNotEmpty()) {
+                $from = $mutation->type === 'TRANSFER_IN'
+                ? $pair->firstWhere('type', 'TRANSFER_OUT')?->warehouse?->name
+                : $mutation->warehouse?->name;
+
+                $to = $mutation->type === 'TRANSFER_OUT'
+                ? $pair->firstWhere('type', 'TRANSFER_IN')?->warehouse?->name
+                : $mutation->warehouse?->name;
+
+                if ($from || $to) {
+                    $transferPartner = [
+                        'from' => $from ?? '—',
+                        'to' => $to ?? '—',
+                    ];
+                }
+            }
+        }
+
+        // Riwayat LOT yang sama (kronologis)
+        $lotHistory = null;
+        if ($mutation->lot_id) {
+            $lotHistory = InventoryMutation::query()
+                ->where('lot_id', $mutation->lot_id)
+                ->orderBy('date') // kronologis
+                ->orderBy('id')
+                ->with('warehouse:id,name,code')
+                ->get(['id', 'warehouse_id', 'type', 'qty_in', 'qty_out', 'unit', 'date', 'lot_id']);
+        }
+
+        return view('inventory.mutations.show', compact(
+            'mutation', 'prev', 'next', 'purchaseSource', 'transferPartner', 'lotHistory'
+        ));
+    }
+
 }
