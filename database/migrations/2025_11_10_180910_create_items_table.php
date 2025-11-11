@@ -6,20 +6,17 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('items', function (Blueprint $table) {
-            $table->id();
-            $table->timestamps();
+        Schema::create('items', function (Blueprint $t) {
+            $t->id();
+            $t->string('code')->unique(); // FLC280BLK, K7BLK (tanpa embel-embel)
+            $t->string('name');
+            $t->string('uom', 16)->default('pcs'); // material biasanya 'kg'
+            $t->enum('type', ['material', 'finished'])->default('material');
+            $t->timestamps();
         });
     }
-
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('items');

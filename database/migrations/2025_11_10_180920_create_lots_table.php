@@ -6,20 +6,19 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('lots', function (Blueprint $table) {
-            $table->id();
-            $table->timestamps();
+        Schema::create('lots', function (Blueprint $t) {
+            $t->id();
+            $t->foreignId('item_id')->constrained('items');
+            $t->string('code')->unique(); // LOT-FLC280BLK-YYYYMMDD-###
+            $t->string('unit', 16)->default('kg');
+            $t->decimal('initial_qty', 12, 2);
+            $t->decimal('unit_cost', 14, 0)->default(0);
+            $t->date('date');
+            $t->timestamps();
         });
     }
-
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('lots');
