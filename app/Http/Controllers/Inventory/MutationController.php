@@ -34,22 +34,22 @@ class MutationController extends Controller
         $perPage = $data['per_page'] ?? 30;
         $sort = $data['sort'] ?? 'date_desc';
 
-        $hasItemCode = Schema::hasColumn('inventory_mutations', 'item_code');
+        $hasItemCodeCol = Schema::hasColumn('inventory_mutations', 'item_code');
 
-        // ==== BASE QUERY ====
+        // ==== BASE FILTER (TANPA SELECT & ORDER DULU) ====
         $base = DB::table('inventory_mutations as m')
             ->leftJoin('lots as l', 'm.lot_id', '=', 'l.id')
             ->leftJoin('items as it', 'l.item_id', '=', 'it.id')
-            ->select([
-                'm.id', 'm.ref_code', 'm.type', 'm.qty_in', 'm.qty_out', 'm.unit', 'm.date',
-                'm.note', 'm.warehouse_id',
-                DB::raw('COALESCE(m.item_code, it.code) as item_code'),
-                DB::raw('COALESCE(l.unit_cost, 0) as unit_cost'),
-            ])
-            ->when($itemCode, function ($w) use ($itemCode, $hasItemCode) {
-                return $hasItemCode
-                ? $w->where('m.item_code', $itemCode)
-                : $w->where('it.code', $itemCode);
+            ->when($itemCode, function ($w) use ($itemCode, $hasItemCodeCol) {
+                // filter efisien ke kolom yang tersedia
+                if ($hasItemCodeCol) {
+                    return $w->where('m.item_code', $itemCode)
+                        ->orWhere(function ($x) use ($itemCode) {
+                            $x->whereNull('m.item_code')
+                                ->where('it.code', $itemCode);
+                        });
+                }
+                return $w->where('it.code', $itemCode);
             })
             ->when($warehouse, fn($w) => $w->where('m.warehouse_id', $warehouse))
             ->when($type, fn($w) => $w->where('m.type', $type))
@@ -62,38 +62,60 @@ class MutationController extends Controller
                     ->orWhere('it.code', 'like', "%{$q}%");
             }));
 
-        // ==== SORT ====
-        $base = match ($sort) {
-            'date_asc' => $base->orderBy('m.date')->orderBy('m.id'),
-            default => $base->orderByDesc('m.date')->orderByDesc('m.id'),
-        };
-
-        // ==== PAGINATION ====
-        $rows = $base->paginate($perPage)->withQueryString();
-
-        // ==== KPI TOTAL (MENYESUAIKAN FILTER) ====
+        // ==== KPI TOTAL (HITUNG DULU, TANPA SELECT LAIN) ====
         $kpiQuery = clone $base;
         $kpi = $kpiQuery->selectRaw('SUM(m.qty_in) as tin, SUM(m.qty_out) as tout')->first();
         $totalIn = (float) ($kpi->tin ?? 0);
         $totalOut = (float) ($kpi->tout ?? 0);
 
-        // ==== GROUP PER TANGGAL ====
+        // ==== SELECT UNTUK LIST (SETELAH KPI) ====
+        $listQuery = clone $base;
+        $listQuery->select([
+            'm.id',
+            'm.ref_code',
+            'm.type',
+            'm.qty_in',
+            'm.qty_out',
+            'm.unit',
+            'm.date',
+            'm.note',
+            'm.warehouse_id',
+            DB::raw('COALESCE(m.item_code, it.code) as item_code'),
+            DB::raw('COALESCE(l.unit_cost, 0) as unit_cost'),
+        ]);
+
+        // ==== SORT ====
+        $listQuery = match ($sort) {
+            'date_asc' => $listQuery->orderBy('m.date')->orderBy('m.id'),
+            default => $listQuery->orderByDesc('m.date')->orderByDesc('m.id'),
+        };
+
+        // ==== PAGINATION ====
+        $rows = $listQuery->paginate($perPage)->withQueryString();
+
+        // ==== GROUP PER TANGGAL UNTUK VIEW ====
         $grouped = [];
-        foreach ($rows as $r) {
-            $dateKey = \Carbon\Carbon::parse($r->date)->format('Y-m-d');
-            $grouped[$dateKey]['items'][] = $r;
-            $grouped[$dateKey]['sum_in'] = ($grouped[$dateKey]['sum_in'] ?? 0) + (float) ($r->qty_in ?? 0);
-            $grouped[$dateKey]['sum_out'] = ($grouped[$dateKey]['sum_out'] ?? 0) + (float) ($r->qty_out ?? 0);
-            $grouped[$dateKey]['net'] = ($grouped[$dateKey]['sum_in'] ?? 0) - ($grouped[$dateKey]['sum_out'] ?? 0);
+        foreach ($rows as $row) {
+            $dateKey = \Carbon\Carbon::parse($row->date)->format('Y-m-d');
+            if (!isset($grouped[$dateKey])) {
+                $grouped[$dateKey] = ['items' => [], 'sum_in' => 0, 'sum_out' => 0, 'net' => 0];
+            }
+            $grouped[$dateKey]['items'][] = $row;
+            $grouped[$dateKey]['sum_in'] += (float) ($row->qty_in ?? 0);
+            $grouped[$dateKey]['sum_out'] += (float) ($row->qty_out ?? 0);
+            $grouped[$dateKey]['net'] = $grouped[$dateKey]['sum_in'] - $grouped[$dateKey]['sum_out'];
         }
 
         // ==== TAMBAHAN UNTUK VIEW ====
-        $itemInfo = $itemCode ? DB::table('items')->where('code', $itemCode)->first(['code', 'name', 'uom']) : null;
+        $itemInfo = $itemCode
+        ? DB::table('items')->where('code', $itemCode)->first(['code', 'name', 'uom'])
+        : null;
 
         $warehouses = DB::table('warehouses')->orderBy('name')->get(['id', 'code', 'name']);
+
         $warehouseName = null;
         if ($warehouse) {
-            $wh = $warehouses->firstWhere('id', $warehouse);
+            $wh = $warehouses->firstWhere('id', (int) $warehouse);
             if ($wh) {
                 $warehouseName = "{$wh->code} — {$wh->name}";
             }
@@ -104,16 +126,23 @@ class MutationController extends Controller
             'rows' => $rows,
             'grouped' => $grouped,
             'itemInfo' => $itemInfo,
+            'itemCode' => $itemCode, // untuk reuse di link
+            'warehouseId' => $warehouse, // untuk reuse di link
             'warehouseName' => $warehouseName,
             'warehouses' => $warehouses,
             'totalIn' => $totalIn,
             'totalOut' => $totalOut,
+            'sort' => $sort,
+            'perPage' => $perPage,
+            'q' => $q,
+            'dateFrom' => $dateFrom,
+            'dateTo' => $dateTo,
+            'type' => $type,
         ]);
     }
 
     public function show(int $id)
     {
-        // Ambil 1 mutasi + relasi untuk kebutuhan view
         $mutation = InventoryMutation::query()
             ->with([
                 'warehouse:id,name,code',
@@ -122,13 +151,12 @@ class MutationController extends Controller
             ])
             ->findOrFail($id);
 
-        // Prev/Next berdasarkan ID (sederhana & cepat)
         $prev = InventoryMutation::where('id', '<', $mutation->id)
             ->orderByDesc('id')->first(['id']);
         $next = InventoryMutation::where('id', '>', $mutation->id)
             ->orderBy('id')->first(['id']);
 
-        // Sumber: jika ref_code adalah kode invoice pembelian → cari purchase_invoice
+        // Sumber invoice pembelian (jika ada)
         $purchaseSource = null;
         if ($mutation->ref_code) {
             $pi = PurchaseInvoice::where('code', $mutation->ref_code)->first(['id', 'code']);
@@ -140,7 +168,7 @@ class MutationController extends Controller
             }
         }
 
-        // Sumber transfer partner (jika tipe transfer, cari pasangan IN/OUT dg ref_code & lot yang sama)
+        // Pasangan transfer (IN/OUT) dengan ref_code & lot_id sama
         $transferPartner = null;
         if (in_array($mutation->type, ['TRANSFER_IN', 'TRANSFER_OUT'], true) && $mutation->ref_code) {
             $pair = InventoryMutation::query()
@@ -160,21 +188,17 @@ class MutationController extends Controller
                 : $mutation->warehouse?->name;
 
                 if ($from || $to) {
-                    $transferPartner = [
-                        'from' => $from ?? '—',
-                        'to' => $to ?? '—',
-                    ];
+                    $transferPartner = ['from' => $from ?? '—', 'to' => $to ?? '—'];
                 }
             }
         }
 
-        // Riwayat LOT yang sama (kronologis)
+        // Riwayat mutasi untuk LOT yang sama (kronologis)
         $lotHistory = null;
         if ($mutation->lot_id) {
             $lotHistory = InventoryMutation::query()
                 ->where('lot_id', $mutation->lot_id)
-                ->orderBy('date') // kronologis
-                ->orderBy('id')
+                ->orderBy('date')->orderBy('id')
                 ->with('warehouse:id,name,code')
                 ->get(['id', 'warehouse_id', 'type', 'qty_in', 'qty_out', 'unit', 'date', 'lot_id']);
         }
@@ -183,5 +207,4 @@ class MutationController extends Controller
             'mutation', 'prev', 'next', 'purchaseSource', 'transferPartner', 'lotHistory'
         ));
     }
-
 }

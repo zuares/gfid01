@@ -11,7 +11,7 @@
 
         .mono {
             font-variant-numeric: tabular-nums;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono"
         }
 
         .help {
@@ -69,9 +69,7 @@
                             <label class="form-label required">Gudang Tujuan</label>
                             <select name="warehouse_id" id="warehouse_id" class="form-select" required>
                                 <option value="">— Pilih Gudang —</option>
-                                @php
-                                    $warehouses = \App\Models\Warehouse::orderBy('name')->get(['id', 'name', 'code']);
-                                @endphp
+                                @php $warehouses = \App\Models\Warehouse::orderBy('name')->get(['id','name','code']); @endphp
                                 @foreach ($warehouses as $w)
                                     <option value="{{ $w->id }}" @selected(old('warehouse_id', $kontrakanId) == $w->id)>
                                         {{ $w->name }} ({{ $w->code }})
@@ -81,9 +79,19 @@
                             <div class="help">Default terpilih: KONTRAKAN.</div>
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-md-6">
                             <label class="form-label">Catatan</label>
                             <input type="text" name="note" class="form-control" placeholder="Opsional">
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">Pembayaran</label>
+                            <div class="form-check mt-2">
+                                <input class="form-check-input" type="checkbox" name="is_cash" id="is_cash"
+                                    value="1">
+                                <label class="form-check-label" for="is_cash">Tunai (Kas/Bank)</label>
+                            </div>
+                            <div class="help">Biarkan kosong jika pembelian kredit (Hutang Dagang).</div>
                         </div>
                     </div>
                 </div>
@@ -150,17 +158,13 @@
 @push('scripts')
     <script>
         (() => {
-            // === DATA DARI CONTROLLER ===
-            const itemsAll = @json($itemsAll); // [{id,code,name,uom,type}]
-            let filterType = @json($filterType); // 'material'|'pendukung'|'finished'
-
-            // === ELEMENTS ===
+            const itemsAll = @json($itemsAll);
+            let filterType = @json($filterType);
             const tbody = document.querySelector('#table-lines tbody');
             const addBtn = document.querySelector('#add-line');
             const totalView = document.querySelector('#grand-total');
             const supplierSel = document.querySelector('#supplier_id');
 
-            // === UTIL ===
             const rupiah = n => (n || 0).toLocaleString('id-ID');
             const parseNum = v => parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
 
@@ -169,7 +173,7 @@
                 return `<option value="">— Pilih Item (${type}) —</option>` +
                     list.map(i =>
                         `<option value="${i.id}" data-uom="${i.uom}" data-code="${i.code}">${i.code} — ${i.name}</option>`
-                        ).join('');
+                    ).join('');
             };
 
             const calcGrand = () => {
@@ -242,8 +246,10 @@
                 tr.querySelector('.btn-history').addEventListener('click', async () => {
                     const supplierId = supplierSel.value;
                     const itemId = sel.value;
-                    if (!supplierId || !itemId) return alert('Pilih supplier dan item dulu.');
-
+                    if (!supplierId || !itemId) {
+                        alert('Pilih supplier dan item dulu.');
+                        return;
+                    }
                     const url = new URL(`{{ route('purchasing.ajax.last_price') }}`, window.location
                         .origin);
                     url.searchParams.set('supplier_id', supplierId);
@@ -280,7 +286,6 @@
                 });
             }
 
-            // STRICT filter: rebuild semua select, reset jika tak cocok
             document.querySelectorAll('.type-filter').forEach(r => {
                 r.addEventListener('change', () => {
                     filterType = r.value;
@@ -296,7 +301,6 @@
                 });
             });
 
-            // Init
             document.getElementById('add-line').addEventListener('click', addLine);
             addLine();
         })();

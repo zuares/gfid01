@@ -8,6 +8,7 @@ use App\Models\Lot;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoiceLine;
 use App\Models\Supplier;
+use App\Services\JournalService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -100,14 +101,14 @@ class PurchaseController extends Controller
     }
 
     /** Simpan pembelian + LOT + mutasi PURCHASE_IN ke KONTRAKAN */
-    public function store(Request $r, \App\Services\InventoryService $inv)
+    public function store(Request $r, \App\Services\InventoryService $inv, JournalService $journal)
     {
         $data = $r->validate([
             'date' => ['required', 'date'],
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
-            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'], // penerimaan awal (KONTRAKAN)
+            'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
             'note' => ['nullable', 'string'],
-
+            'is_cash' => ['nullable', 'boolean'], // tambahkan di form kalau mau tunai
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
             'lines.*.qty' => ['required', 'numeric', 'min:0.001'],
@@ -115,14 +116,11 @@ class PurchaseController extends Controller
             'lines.*.unit_cost' => ['required', 'numeric', 'min:0'],
         ]);
 
-        // Kode invoice sebagai ref_code mutasi
         $datePart = date('ymd', strtotime($data['date']));
         $prefix = "INV-BKU-{$datePart}-";
-        $nextSeq = str_pad((string) ($this->nextSeq($prefix)), 3, '0', STR_PAD_LEFT);
-        $invCode = $prefix . $nextSeq;
+        $invCode = $prefix . str_pad((string) ($this->nextSeq($prefix)), 3, '0', STR_PAD_LEFT);
 
-        DB::transaction(function () use ($data, $invCode, $inv) {
-            /** @var \App\Models\PurchaseInvoice $invoice */
+        DB::transaction(function () use ($data, $invCode, $inv, $journal) {
             $invoice = \App\Models\PurchaseInvoice::create([
                 'code' => $invCode,
                 'date' => $data['date'],
@@ -132,14 +130,15 @@ class PurchaseController extends Controller
                 'status' => 'posted',
             ]);
 
+            $grand = 0;
+
             foreach ($data['lines'] as $line) {
                 $item = \App\Models\Item::findOrFail($line['item_id']);
                 $qty = (float) $line['qty'];
                 $unit = (string) $line['unit'];
                 $cost = (float) $line['unit_cost'];
 
-                // Simpan baris invoice
-                $pl = \App\Models\PurchaseInvoiceLine::create([
+                \App\Models\PurchaseInvoiceLine::create([
                     'purchase_invoice_id' => $invoice->id,
                     'item_id' => $item->id,
                     'item_code' => $item->code,
@@ -148,8 +147,10 @@ class PurchaseController extends Controller
                     'unit_cost' => $cost,
                 ]);
 
-                // Buat LOT: untuk pembelian (material/pendukung/finished)
-                // Format LOT-{ITEM}-{YYYYMMDD}-###
+                $subtotal = $qty * $cost;
+                $grand += $subtotal;
+
+                // LOT pembelian
                 $lotCode = \App\Support\LotCode::nextMaterial($item->code, new \DateTime($data['date']));
                 $lotId = DB::table('lots')->insertGetId([
                     'item_id' => $item->id,
@@ -162,11 +163,7 @@ class PurchaseController extends Controller
                     'updated_at' => now(),
                 ]);
 
-                // Mutasi PURCHASE_IN (kompatibel dengan MutationController pairing logic)
-                // - ref_code: kode invoice (sama untuk semua baris → memudahkan tracing)
-                // - lot_id: lot baru
-                // - date: pakai invoice->date (bukan now()), biar filter tanggal cocok
-
+                // Mutasi persediaan (KONTRAKAN)
                 $inv->mutate(
                     $invoice->warehouse_id,
                     $lotId,
@@ -174,14 +171,24 @@ class PurchaseController extends Controller
                     $qty,
                     0,
                     $unit,
-                    $invoice->code, // <— ref_code
+                    $invoice->code,
                     "Pembelian {$item->code}",
                     $invoice->date->toDateString() . ' 00:00:00'
                 );
             }
+
+            // Jurnal sederhana (Persediaan vs Hutang/Kas)
+            $isCash = (bool) ($data['is_cash'] ?? false);
+            $journal->postPurchase(
+                refCode: $invoice->code,
+                date: $invoice->date->toDateString(),
+                amount: $grand,
+                cash: $isCash,
+                memo: $data['note'] ?? null,
+            );
         });
 
-        return redirect()->route('purchasing.invoices.index')->with('ok', 'Pembelian tersimpan.');
+        return redirect()->route('purchasing.invoices.index')->with('ok', 'Pembelian & jurnal tersimpan.');
     }
 
     /** AJAX: harga terakhir per supplier+item */
