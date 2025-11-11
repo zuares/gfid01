@@ -97,7 +97,7 @@
                 </div>
             </div>
 
-            {{-- FILTER ITEM (STRICT) --}}
+            {{-- FILTER ITEM --}}
             <div class="card mb-3">
                 <div class="card-body">
                     <label class="form-label mb-2">Filter Jenis Item</label><br>
@@ -113,7 +113,7 @@
                 </div>
             </div>
 
-            {{-- DETAIL BARANG --}}
+            {{-- DETAIL --}}
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -161,14 +161,16 @@
             const itemsAll = @json($itemsAll);
             let filterType = @json($filterType);
             const tbody = document.querySelector('#table-lines tbody');
-            const addBtn = document.querySelector('#add-line');
             const totalView = document.querySelector('#grand-total');
             const supplierSel = document.querySelector('#supplier_id');
 
-            const rupiah = n => (n || 0).toLocaleString('id-ID');
-            const parseNum = v => parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
+            // === Formatter: pakai helper JS kamu jika ada, fallback ke locale ===
+            const rupiah = (n) => (window.App?.formatRupiah ? window.App.formatRupiah(n) : (Number(n || 0))
+                .toLocaleString('id-ID'));
+            const parseNum = (v) => (window.App?.parseNumberId ? window.App.parseNumberId(v) :
+                (parseFloat(String(v ?? '').replace(/\s+/g, '').replace(/\./g, '').replace(',', '.')) || 0));
 
-            const optionsByType = type => {
+            const optionsByType = (type) => {
                 const list = itemsAll.filter(i => i.type === type);
                 return `<option value="">— Pilih Item (${type}) —</option>` +
                     list.map(i =>
@@ -185,6 +187,22 @@
                 });
                 totalView.textContent = rupiah(t);
             };
+
+            // === Ambil last price dari backend
+            async function fetchLastPrice({
+                itemId,
+                supplierId
+            }) {
+                if (!itemId || !supplierId) return null;
+                const url = new URL(`{{ route('purchasing.invoices.ajax.last_price') }}`, window.location.origin);
+                url.searchParams.set('supplier_id', supplierId);
+                url.searchParams.set('item_id', itemId);
+                const res = await fetch(url);
+                if (!res.ok) return null;
+                const js = await res.json().catch(() => null);
+                if (js && js.ok && js.data) return js.data; // {unit_cost, unit, date, inv_code}
+                return null;
+            }
 
             function addLine() {
                 const idx = Date.now();
@@ -233,40 +251,6 @@
                 const priceVal = tr.querySelector('.price-val');
                 const subtotal = tr.querySelector('.subtotal');
 
-                sel.addEventListener('change', () => {
-                    const opt = sel.options[sel.selectedIndex];
-                    if (opt && opt.dataset.uom) unit.value = opt.dataset.uom;
-                });
-
-                tr.querySelector('.btn-del').addEventListener('click', () => {
-                    tr.remove();
-                    calcGrand();
-                });
-
-                tr.querySelector('.btn-history').addEventListener('click', async () => {
-                    const supplierId = supplierSel.value;
-                    const itemId = sel.value;
-                    if (!supplierId || !itemId) {
-                        alert('Pilih supplier dan item dulu.');
-                        return;
-                    }
-                    const url = new URL(`{{ route('purchasing.ajax.last_price') }}`, window.location
-                        .origin);
-                    url.searchParams.set('supplier_id', supplierId);
-                    url.searchParams.set('item_id', itemId);
-                    const res = await fetch(url);
-                    const js = await res.json();
-                    if (js?.ok && js.data) {
-                        priceView.value = rupiah(js.data.unit_cost);
-                        priceVal.value = js.data.unit_cost;
-                        unit.value = js.data.unit || unit.value;
-                        subtotal.textContent = rupiah(js.data.unit_cost * parseNum(qtyVal.value));
-                        calcGrand();
-                    } else {
-                        alert('Belum ada riwayat harga.');
-                    }
-                });
-
                 const recalc = () => {
                     const q = parseNum(qtyView.value);
                     const p = parseNum(priceView.value);
@@ -276,16 +260,75 @@
                     calcGrand();
                 };
 
+                // Auto-isi last price ketika item dipilih (dengan supplier terpilih)
+                async function tryAutofillLastPrice() {
+                    const supplierId = supplierSel.value;
+                    const itemId = sel.value;
+                    if (!supplierId || !itemId) return;
+                    const last = await fetchLastPrice({
+                        itemId,
+                        supplierId
+                    });
+                    if (last) {
+                        priceView.value = rupiah(last.unit_cost);
+                        priceVal.value = last.unit_cost;
+                        if (last.unit && !unit.value) unit.value = last.unit;
+                        recalc();
+                        tr.classList.add('table-success');
+                        setTimeout(() => tr.classList.remove('table-success'), 420);
+                    }
+                }
+
+                // Default UOM dari master + auto last price
+                sel.addEventListener('change', () => {
+                    const opt = sel.options[sel.selectedIndex];
+                    if (opt && opt.dataset.uom) unit.value = opt.dataset.uom || unit.value;
+                    tryAutofillLastPrice();
+                });
+
+                // Jika supplier diganti setelah pilih item: coba auto-isi lagi
+                supplierSel.addEventListener('change', () => {
+                    tryAutofillLastPrice();
+                });
+
+                // Tombol hapus baris
+                tr.querySelector('.btn-del').addEventListener('click', () => {
+                    tr.remove();
+                    calcGrand();
+                });
+
+                // Tombol history manual
+                tr.querySelector('.btn-history').addEventListener('click', async () => {
+                    const supplierId = supplierSel.value;
+                    const itemId = sel.value;
+                    if (!supplierId || !itemId) return alert('Pilih supplier dan item dulu.');
+                    const last = await fetchLastPrice({
+                        itemId,
+                        supplierId
+                    });
+                    if (last) {
+                        priceView.value = rupiah(last.unit_cost);
+                        priceVal.value = last.unit_cost;
+                        unit.value = last.unit || unit.value;
+                        recalc();
+                    } else {
+                        alert('Belum ada riwayat harga.');
+                    }
+                });
+
+                // Input guard & recalculation
+                const sanitize = (el) => el.value = el.value.replace(/[^0-9.,]/g, '');
                 qtyView.addEventListener('input', () => {
-                    qtyView.value = qtyView.value.replace(/[^0-9.,]/g, '');
+                    sanitize(qtyView);
                     recalc();
                 });
                 priceView.addEventListener('input', () => {
-                    priceView.value = priceView.value.replace(/[^0-9.,]/g, '');
+                    sanitize(priceView);
                     recalc();
                 });
             }
 
+            // Filter tipe item: refresh semua dropdown aktif
             document.querySelectorAll('.type-filter').forEach(r => {
                 r.addEventListener('change', () => {
                     filterType = r.value;
@@ -295,12 +338,18 @@
                         const match = [...sel.options].some(o => o.value == current);
                         if (!match) {
                             sel.value = '';
-                            sel.closest('tr').querySelector('.unit-input').value = '';
+                            const row = sel.closest('tr');
+                            row.querySelector('.unit-input').value = '';
+                            row.querySelector('.price-view').value = '';
+                            row.querySelector('.price-val').value = '0';
+                            row.querySelector('.subtotal').textContent = '0';
+                            calcGrand();
                         }
                     });
                 });
             });
 
+            // Add line button + baris awal
             document.getElementById('add-line').addEventListener('click', addLine);
             addLine();
         })();

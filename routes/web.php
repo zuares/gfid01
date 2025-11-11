@@ -18,14 +18,14 @@ Route::prefix('accounting')->name('accounting.')->group(function () {
     // Buku Besar (ledger)
     Route::get('/ledger', [JournalController::class, 'ledger'])->name('ledger');
 });
+// routes/web.php
+Route::prefix('purchasing/invoices')->name('purchasing.invoices.')->group(function () {
+    Route::get('/', [PurchaseController::class, 'index'])->name('index');
+    Route::get('/create', [PurchaseController::class, 'create'])->name('create');
+    Route::post('/', [PurchaseController::class, 'store'])->name('store');
+    Route::get('/{invoice}', [PurchaseController::class, 'show'])->name('show');
 
-Route::prefix('purchasing')->name('purchasing.')->group(function () {
-    Route::get('/invoices', [PurchaseController::class, 'index'])->name('invoices.index');
-    Route::get('/invoices/create', [PurchaseController::class, 'create'])->name('invoices.create');
-    Route::post('/invoices', [PurchaseController::class, 'store'])->name('invoices.store');
-    Route::get('/invoices/{invoice}', [PurchaseController::class, 'show'])->name('invoices.show');
-
-    // AJAX helpers
+    // AJAX
     Route::get('/ajax/last-price', [PurchaseController::class, 'lastPrice'])->name('ajax.last_price');
     Route::get('/ajax/history', [PurchaseController::class, 'history'])->name('ajax.history');
 });

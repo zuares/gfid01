@@ -31,11 +31,13 @@ class PurchaseController extends Controller
             ->when($status, fn($qq) => $qq->where('status', $status))
             ->when($supp, fn($qq) => $qq->where('supplier_id', $supp))
             ->when($range, function ($qq) use ($range) {
-                if (preg_match('~^\s*(\d{4}-\d{2}-\d{2})\s*s/d\s*(\d{4}-\d{2}-\d{2})\s*$~', $range, $m)) {
+                $range = trim($range ?? '');
+                if (preg_match('~^(\d{4}-\d{2}-\d{2})\s*s/d\s*(\d{4}-\d{2}-\d{2})$~', $range, $m)) {
                     $qq->whereBetween('date', [$m[1], $m[2]]);
                 }
             })
             ->orderByDesc('date')
+            ->orderByDesc('id') // ✅ urutan stabil dari yang terbaru
             ->paginate(20);
 
         $suppliers = \App\Models\Supplier::orderBy('name')->get(['id', 'name']);
@@ -52,7 +54,8 @@ class PurchaseController extends Controller
             'warehouse:id,code,name',
             'lines' => function ($q) {
                 $q->select('id', 'purchase_invoice_id', 'item_id', 'item_code', 'qty', 'unit', 'unit_cost')
-                    ->with(['item:id,code,name,uom,type']);
+                    ->with(['item:id,code,name,uom,type'])
+                    ->orderBy('id');
             },
         ]);
 
@@ -94,7 +97,7 @@ class PurchaseController extends Controller
         $itemsAll = Item::orderBy('name')->get(['id', 'code', 'name', 'uom', 'type']);
 
         // Default gudang penerimaan = KONTRAKAN
-        $kontrakanId = DB::table('warehouses')->where('code', 'KONTRAKAN')->value('id');
+        $kontrakanId = DB::table('warehouses')->where('code', 'KONTRAKAN')->value('id') ?? DB::table('warehouses')->orderBy('id')->value('id');
 
         // Note: di Blade ganti const itemsAll = @json($itemsAll);
         return view('purchasing.invoices.create', compact('suppliers', 'itemsAll', 'filterType', 'kontrakanId'));
@@ -209,7 +212,21 @@ class PurchaseController extends Controller
         ]);
 
         // Normalisasi angka Indonesia --> float
-        $norm = fn($s) => (float) str_replace(['.', ','], ['', '.'], (string) $s);
+        $norm = function ($s): float {
+            $s = trim((string) $s);
+            // buang spasi non-breaking
+            $s = str_replace("\xc2\xa0", ' ', $s);
+            // hapus semua titik pemisah ribuan
+            $s = str_replace('.', '', $s);
+            // ganti koma (desimal id) ke titik
+            $s = str_replace(',', '.', $s);
+            // filter karakter valid
+            if (!preg_match('~^-?\d+(\.\d+)?$~', $s)) {
+                abort(422, 'Format angka tidak valid.');
+            }
+            return (float) $s;
+        };
+
         foreach ($data['lines'] as &$line) {
             $line['qty'] = $norm($line['qty']);
             $line['unit_cost'] = $norm($line['unit_cost']);
@@ -309,8 +326,7 @@ class PurchaseController extends Controller
             return response()->json(['ok' => false, 'msg' => 'supplier_id dan item_id wajib diisi'], 422);
         }
 
-        $last = PurchaseInvoiceLine::query()
-            ->with(['invoice:id,date,supplier_id,code'])
+        $last = PurchaseInvoiceLine::with(['invoice:id,date,supplier_id,code'])
             ->lastPrice($supplierId, $itemId)
             ->first();
 
@@ -364,12 +380,19 @@ class PurchaseController extends Controller
     /** Hitung next sequence untuk INV-BKU-YYMMDD-### */
     protected function nextSeq(string $prefix): int
     {
-        $max = DB::table('purchase_invoices')
+        // Ambil suffix numeric paling besar dari kode yang match prefix
+        $last = DB::table('purchase_invoices')
             ->where('code', 'like', $prefix . '%')
-            ->selectRaw("max(substr(code, length(?) + 1, 10)) as suffix", [$prefix])
-            ->value('suffix');
+            ->orderByDesc('code') // karena zero-pad, sorting string aman
+            ->value('code');
 
-        $num = (int) $max;
-        return $num + 1;
+        if (!$last) {
+            return 1;
+        }
+
+        // Format: INV-BKU-YYMMDD-###
+        $suffix = (int) preg_replace('~^' . preg_quote($prefix, '~') . '~', '', $last);
+        return $suffix + 1;
     }
+
 }
