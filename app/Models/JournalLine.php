@@ -12,4 +12,7 @@ class JournalLine extends Model
     {
         return $this->belongsTo(Account::class);
     }
+    public function journalEntry()
+    {return $this->belongsTo(\App\Models\JournalEntry::class);}
+
 }

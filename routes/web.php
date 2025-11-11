@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Inventory\MutationController;
 use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Purchasing\PurchaseController;
@@ -9,6 +10,14 @@ Route::get('/dashboard', function () {
 })->name('dashboard');
 
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('accounting')->name('accounting.')->group(function () {
+    Route::get('/journals', [JournalController::class, 'index'])->name('journals.index');
+    Route::get('/journals/{id}', [JournalController::class, 'show'])->name('journals.show');
+
+    // Buku Besar (ledger)
+    Route::get('/ledger', [JournalController::class, 'ledger'])->name('ledger');
+});
 
 Route::prefix('purchasing')->name('purchasing.')->group(function () {
     Route::get('/invoices', [PurchaseController::class, 'index'])->name('invoices.index');

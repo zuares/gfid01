@@ -45,5 +45,18 @@
             <i class="bi bi-person-lines-fill"></i><span>Data Gaji</span>
         </a>
 
+        {{-- ===================== --}}
+        <div class="section">Accounting</div>
+        <a class="nav-link {{ request()->routeIs('accounting.journals.*') ? 'active' : '' }}"
+            href="{{ route('accounting.journals.index') }}">
+            <i class="bi bi-journal-text"></i><span>Jurnal</span>
+        </a>
+        <a class="nav-link {{ request()->routeIs('accounting.ledger') ? 'active' : '' }}"
+            href="{{ route('accounting.ledger') }}">
+            <i class="bi bi-columns-gap"></i><span>Ledger</span>
+        </a>
+        {{-- Jika nanti ada menu lain (Chart of Accounts, Trial Balance, dsb), tinggal tambah di sini. --}}
+        {{-- Route yang belum ada biarkan saja tidak ditampilkan untuk sekarang. --}}
+
     </nav>
 </aside>
