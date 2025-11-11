@@ -101,20 +101,128 @@ class PurchaseController extends Controller
     }
 
     /** Simpan pembelian + LOT + mutasi PURCHASE_IN ke KONTRAKAN */
+    // public function store(Request $r, \App\Services\InventoryService $inv, JournalService $journal)
+    // {
+    //     $data = $r->validate([
+    //         'date' => ['required', 'date'],
+    //         'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
+    //         'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+    //         'note' => ['nullable', 'string'],
+    //         'is_cash' => ['nullable', 'boolean'], // tambahkan di form kalau mau tunai
+    //         'lines' => ['required', 'array', 'min:1'],
+    //         'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
+    //         'lines.*.qty' => ['required', 'numeric', 'min:0.001'],
+    //         'lines.*.unit' => ['required', 'string', 'max:16'],
+    //         'lines.*.unit_cost' => ['required', 'numeric', 'min:0'],
+    //     ]);
+
+    //     $datePart = date('ymd', strtotime($data['date']));
+    //     $prefix = "INV-BKU-{$datePart}-";
+    //     $invCode = $prefix . str_pad((string) ($this->nextSeq($prefix)), 3, '0', STR_PAD_LEFT);
+
+    //     DB::transaction(function () use ($data, $invCode, $inv, $journal) {
+    //         $invoice = \App\Models\PurchaseInvoice::create([
+    //             'code' => $invCode,
+    //             'date' => $data['date'],
+    //             'supplier_id' => $data['supplier_id'],
+    //             'warehouse_id' => $data['warehouse_id'],
+    //             'note' => $data['note'] ?? null,
+    //             'status' => 'posted',
+    //         ]);
+
+    //         $grand = 0;
+
+    //         foreach ($data['lines'] as $line) {
+    //             $item = \App\Models\Item::findOrFail($line['item_id']);
+    //             $qty = (float) $line['qty'];
+    //             $unit = (string) $line['unit'];
+    //             $cost = (float) $line['unit_cost'];
+
+    //             \App\Models\PurchaseInvoiceLine::create([
+    //                 'purchase_invoice_id' => $invoice->id,
+    //                 'item_id' => $item->id,
+    //                 'item_code' => $item->code,
+    //                 'qty' => $qty,
+    //                 'unit' => $unit,
+    //                 'unit_cost' => $cost,
+    //             ]);
+
+    //             $subtotal = $qty * $cost;
+    //             $grand += $subtotal;
+
+    //             // LOT pembelian
+    //             $lotCode = \App\Support\LotCode::nextMaterial($item->code, new \DateTime($data['date']));
+    //             $lotId = DB::table('lots')->insertGetId([
+    //                 'item_id' => $item->id,
+    //                 'code' => $lotCode,
+    //                 'unit' => $unit,
+    //                 'initial_qty' => $qty,
+    //                 'unit_cost' => $cost,
+    //                 'date' => $data['date'],
+    //                 'created_at' => now(),
+    //                 'updated_at' => now(),
+    //             ]);
+
+    //             // Mutasi persediaan (KONTRAKAN)
+    //             $inv->mutate(
+    //                 $invoice->warehouse_id,
+    //                 $lotId,
+    //                 'PURCHASE_IN',
+    //                 $qty,
+    //                 0,
+    //                 $unit,
+    //                 $invoice->code,
+    //                 "Pembelian {$item->code}",
+    //                 $invoice->date->toDateString() . ' 00:00:00'
+    //             );
+    //         }
+
+    //         // Jurnal sederhana (Persediaan vs Hutang/Kas)
+    //         $isCash = (bool) ($data['is_cash'] ?? false);
+    //         $journal->postPurchase(
+    //             refCode: $invoice->code,
+    //             date: $invoice->date->toDateString(),
+    //             amount: $grand,
+    //             cash: $isCash,
+    //             memo: $data['note'] ?? null,
+    //         );
+    //     });
+
+    //     return redirect()
+    //         ->route('purchasing.invoices.index')
+    //         ->with('ok', "Pembelian {$invCode} & jurnal tersimpan.");
+
+    // }
     public function store(Request $r, \App\Services\InventoryService $inv, JournalService $journal)
     {
         $data = $r->validate([
             'date' => ['required', 'date'],
             'supplier_id' => ['required', 'integer', 'exists:suppliers,id'],
             'warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
-            'note' => ['nullable', 'string'],
-            'is_cash' => ['nullable', 'boolean'], // tambahkan di form kalau mau tunai
+            'note' => ['nullable', 'string', 'max:255'],
+            'is_cash' => ['nullable', 'boolean'],
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
-            'lines.*.qty' => ['required', 'numeric', 'min:0.001'],
+            'lines.*.qty' => ['required', 'string'], // terima string agar bisa normalisasi "1.000,50"
             'lines.*.unit' => ['required', 'string', 'max:16'],
-            'lines.*.unit_cost' => ['required', 'numeric', 'min:0'],
+            'lines.*.unit_cost' => ['required', 'string'], // terima string
         ]);
+
+        // Normalisasi angka Indonesia --> float
+        $norm = fn($s) => (float) str_replace(['.', ','], ['', '.'], (string) $s);
+        foreach ($data['lines'] as &$line) {
+            $line['qty'] = $norm($line['qty']);
+            $line['unit_cost'] = $norm($line['unit_cost']);
+            if ($line['qty'] <= 0) {
+                abort(422, 'Qty tidak boleh <= 0');
+            }
+
+            if ($line['unit_cost'] < 0) {
+                abort(422, 'Harga tidak boleh < 0');
+            }
+
+        }
+        unset($line);
 
         $datePart = date('ymd', strtotime($data['date']));
         $prefix = "INV-BKU-{$datePart}-";
@@ -130,7 +238,7 @@ class PurchaseController extends Controller
                 'status' => 'posted',
             ]);
 
-            $grand = 0;
+            $grand = 0.0;
 
             foreach ($data['lines'] as $line) {
                 $item = \App\Models\Item::findOrFail($line['item_id']);
@@ -147,8 +255,7 @@ class PurchaseController extends Controller
                     'unit_cost' => $cost,
                 ]);
 
-                $subtotal = $qty * $cost;
-                $grand += $subtotal;
+                $grand += $qty * $cost;
 
                 // LOT pembelian
                 $lotCode = \App\Support\LotCode::nextMaterial($item->code, new \DateTime($data['date']));
@@ -163,7 +270,7 @@ class PurchaseController extends Controller
                     'updated_at' => now(),
                 ]);
 
-                // Mutasi persediaan (KONTRAKAN)
+                // Mutasi persediaan (gudang tujuan)
                 $inv->mutate(
                     $invoice->warehouse_id,
                     $lotId,
@@ -177,7 +284,7 @@ class PurchaseController extends Controller
                 );
             }
 
-            // Jurnal sederhana (Persediaan vs Hutang/Kas)
+            // Jurnal: 1201 vs 1101/2101 + memo
             $isCash = (bool) ($data['is_cash'] ?? false);
             $journal->postPurchase(
                 refCode: $invoice->code,
@@ -188,7 +295,8 @@ class PurchaseController extends Controller
             );
         });
 
-        return redirect()->route('purchasing.invoices.index')->with('ok', 'Pembelian & jurnal tersimpan.');
+        return redirect()->route('purchasing.invoices.index')
+            ->with('ok', "Pembelian {$invCode} & jurnal tersimpan.");
     }
 
     /** AJAX: harga terakhir per supplier+item */

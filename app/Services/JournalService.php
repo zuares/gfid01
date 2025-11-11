@@ -1,10 +1,7 @@
 <?php
-
 namespace App\Services;
 
-use App\Models\Account;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class JournalService
@@ -15,50 +12,81 @@ class JournalService
             return;
         }
 
-        // generate kode jurnal sederhana: JRN-YYYYMMDD-###
-        $prefix = 'JRN-' . date('Ymd', strtotime($date)) . '-';
-        $seq = $this->nextSeq($prefix);
-        $jrCode = $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+        $dateObj = Carbon::parse($date);
+        $dateStr = $dateObj->toDateString();
+        $prefix = 'JRN-' . $dateObj->format('Ymd') . '-';
 
-        $accPersediaan = Account::where('code', '1101')->firstOrFail();
-        $accCash = Account::where('code', '1110')->first(); // boleh null
-        $accAP = Account::where('code', '2101')->firstOrFail();
+        // === Mapping akun sesuai seeder:
+        // 1201 Persediaan Bahan (Debit), 1101 Kas (Kredit jika tunai), 2101 Hutang Dagang (Kredit jika kredit)
+        $accPersediaan = \DB::table('accounts')->where('code', '1201')->first(); // Persediaan Bahan
+        $accCash = \DB::table('accounts')->where('code', '1101')->first(); // Kas
+        $accAP = \DB::table('accounts')->where('code', '2101')->first(); // Hutang Dagang
 
-        DB::transaction(function () use ($jrCode, $date, $refCode, $amount, $cash, $memo, $accPersediaan, $accCash, $accAP) {
-            $jr = JournalEntry::create([
+        if (!$accPersediaan || !$accAP) {
+            throw new \RuntimeException('Akun 1201/2101 belum ada. Seed AccountSeeder dulu.');
+        }
+        $useCash = $cash && $accCash;
+
+        $autoMemo = sprintf(
+            'Pembelian %s %s sebesar Rp %s',
+            $useCash ? 'tunai' : 'kredit',
+            $refCode,
+            number_format($amount, 0, ',', '.')
+        );
+        $memo = $memo ? mb_strimwidth($memo, 0, 255, '…', 'UTF-8') : $autoMemo;
+
+        DB::transaction(function () use ($prefix, $dateStr, $refCode, $amount, $memo, $accPersediaan, $accCash, $accAP, $useCash) {
+            $seq = $this->nextSeq($prefix);
+            $jrCode = $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+
+            $jrId = DB::table('journal_entries')->insertGetId([
                 'code' => $jrCode,
-                'date' => $date,
+                'date' => $dateStr,
                 'ref_code' => $refCode,
                 'memo' => $memo,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
-            // Dr Persediaan
-            JournalLine::create([
-                'journal_entry_id' => $jr->id,
+            // Dr 1201 Persediaan Bahan
+            DB::table('journal_lines')->insert([
+                'journal_entry_id' => $jrId,
                 'account_id' => $accPersediaan->id,
                 'debit' => $amount,
                 'credit' => 0,
-                'note' => 'Pembelian barang/ bahan',
+                'note' => 'Persediaan bertambah dari pembelian',
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
-            if ($cash && $accCash) {
-                // Cr Kas/Bank
-                JournalLine::create([
-                    'journal_entry_id' => $jr->id,
+            if ($useCash) {
+                // Cr 1101 Kas
+                DB::table('journal_lines')->insert([
+                    'journal_entry_id' => $jrId,
                     'account_id' => $accCash->id,
                     'debit' => 0,
                     'credit' => $amount,
-                    'note' => 'Pembelian tunai',
+                    'note' => 'Kas keluar untuk pembelian',
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
             } else {
-                // Cr Hutang Dagang
-                JournalLine::create([
-                    'journal_entry_id' => $jr->id,
+                // Cr 2101 Hutang Dagang
+                DB::table('journal_lines')->insert([
+                    'journal_entry_id' => $jrId,
                     'account_id' => $accAP->id,
                     'debit' => 0,
                     'credit' => $amount,
-                    'note' => 'Pembelian kredit',
+                    'note' => 'Hutang timbul dari pembelian',
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
+            }
+
+            // guard balance
+            $tot = DB::table('journal_lines')->selectRaw('SUM(debit) td, SUM(credit) tc')->where('journal_entry_id', $jrId)->first();
+            if (round((float) $tot->td, 2) !== round((float) $tot->tc, 2)) {
+                throw new \RuntimeException('Jurnal tidak balance: ' . $jrCode);
             }
         });
     }
@@ -67,9 +95,8 @@ class JournalService
     {
         $max = DB::table('journal_entries')
             ->where('code', 'like', $prefix . '%')
-            ->selectRaw("max(substr(code, length(?) + 1, 10)) as suffix", [$prefix])
-            ->value('suffix');
-
+            ->selectRaw("MAX(CAST(SUBSTR(code, ?) AS INTEGER)) AS maxnum", [strlen($prefix) + 1])
+            ->value('maxnum');
         return ((int) $max) + 1;
     }
 }

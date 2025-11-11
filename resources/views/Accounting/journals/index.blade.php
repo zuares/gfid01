@@ -1,73 +1,74 @@
 @extends('layouts.app')
 @section('title', 'Accounting • Journals')
 
-@push('head')
-    <style>
-        .table {
-            margin: 0
-        }
-
-        .mono {
-            font-variant-numeric: tabular-nums;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
-        }
-    </style>
-@endpush
+@php
+    $fmt = fn($n) => number_format((float) $n, 0, ',', '.');
+@endphp
 
 @section('content')
     <div class="container py-3">
-        <h3 class="mb-3">Daftar Jurnal</h3>
+        <h3 class="mb-3">Jurnal Umum</h3>
 
         <form method="GET" class="row g-2 mb-3">
-            <div class="col-12 col-md-4">
-                <input type="text" class="form-control" name="q" value="{{ $q }}"
-                    placeholder="Cari kode/ref/memo...">
+            <div class="col-md-4">
+                <input type="text" class="form-control" name="q" value="{{ $q ?? '' }}"
+                    placeholder="Cari kode/ref/memo…">
             </div>
-            <div class="col-12 col-md-4">
-                <input type="text" class="form-control" name="range" value="{{ $range }}"
-                    placeholder="2025-11-01 s/d 2025-11-11">
+            <div class="col-md-4">
+                <input type="text" class="form-control" name="range" value="{{ $range ?? '' }}"
+                    placeholder="2025-11-01 s/d 2025-11-30">
             </div>
-            <div class="col-12 col-md-2">
+            <div class="col-md-2">
                 <button class="btn btn-primary w-100">Filter</button>
             </div>
         </form>
 
         <div class="card">
             <div class="table-responsive">
-                <table class="table table-sm align-middle">
+                <table class="table table-sm m-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th style="width:140px">Tanggal</th>
-                            <th style="width:170px">Kode</th>
+                            <th style="width: 140px">Tanggal</th>
+                            <th style="width: 180px">Kode</th>
                             <th>Ref</th>
                             <th>Memo</th>
-                            <th style="width:80px"></th>
+                            <th style="width: 120px" class="text-end">Total D</th>
+                            <th style="width: 120px" class="text-end">Total C</th>
+                            <th style="width: 80px"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($rows as $r)
+                            @php
+                                $tot = \DB::table('journal_lines')
+                                    ->selectRaw('SUM(debit) d, SUM(credit) c')
+                                    ->where('journal_entry_id', $r->id)
+                                    ->first();
+                            @endphp
                             <tr>
-                                <td class="mono">
-                                    {{ $r->date ? $r->date->format('Y-m-d') : '-' }}
-                                </td>
-
+                                <td class="mono">{{ \Illuminate\Support\Carbon::parse($r->date)->format('Y-m-d') }}</td>
                                 <td class="mono">{{ $r->code }}</td>
                                 <td class="mono">{{ $r->ref_code }}</td>
                                 <td>{{ $r->memo }}</td>
-                                <td><a class="btn btn-sm btn-outline-secondary"
-                                        href="{{ route('accounting.journals.show', $r->id) }}">Lihat</a></td>
+                                <td class="text-end mono">{{ $fmt($tot->d ?? 0) }}</td>
+                                <td class="text-end mono">{{ $fmt($tot->c ?? 0) }}</td>
+                                <td class="text-end">
+                                    <a href="{{ route('accounting.journals.show', $r->id) }}"
+                                        class="btn btn-sm btn-outline-secondary">Detail</a>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="text-center text-muted">Tidak ada data</td>
+                                <td colspan="7" class="text-center text-muted">Tidak ada data</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
-            <div class="p-2">
-                {{ $rows->withQueryString()->links() }}
-            </div>
+        </div>
+
+        <div class="mt-3">
+            {{ $rows->withQueryString()->links() }}
         </div>
     </div>
 @endsection

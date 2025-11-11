@@ -32,4 +32,5 @@ class PurchaseInvoiceLine extends Model
             )
             ->orderByDesc('id'); // fallback
     }
+
 }

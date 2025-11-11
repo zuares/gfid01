@@ -1,63 +1,70 @@
 @extends('layouts.app')
-@section('title', 'Journal • ' . $jr->code)
+@section('title', 'Accounting • Journal Detail')
 
-@push('head')
-    <style>
-        .table {
-            margin: 0
-        }
-
-        .mono {
-            font-variant-numeric: tabular-nums;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
-        }
-
-        .tot {
-            font-weight: 700
-        }
-    </style>
-@endpush
+@php
+    $fmt = fn($n) => number_format((float) $n, 0, ',', '.');
+@endphp
 
 @section('content')
     <div class="container py-3">
-        <div class="d-flex align-items-center justify-content-between mb-2">
-            <h4 class="m-0">Jurnal: <span class="mono">{{ $jr->code }}</span></h4>
-            <a class="btn btn-light" href="{{ route('accounting.journals.index') }}">Kembali</a>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h3 class="m-0">Detail Jurnal</h3>
+            <a href="{{ route('accounting.journals.index') }}" class="btn btn-outline-secondary">Kembali</a>
         </div>
 
-        <div class="mb-2 text-muted">
-            <div>Tanggal: <span class="mono">{{ optional($jr->date)->format('Y-m-d') }}</span></div>
-            <div>Ref: <span class="mono">{{ $jr->ref_code }}</span></div>
-            <div>Memo: {{ $jr->memo }}</div>
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <div class="text-muted small">Tanggal</div>
+                        <div class="mono">{{ \Illuminate\Support\Carbon::parse($jr->date)->format('Y-m-d') }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Kode</div>
+                        <div class="mono">{{ $jr->code }}</div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-muted small">Ref</div>
+                        <div class="mono">{{ $jr->ref_code }}</div>
+                    </div>
+                    <div class="col-12">
+                        <div class="text-muted small">Memo</div>
+                        <div>{{ $jr->memo }}</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="card">
             <div class="table-responsive">
-                <table class="table table-sm align-middle">
+                <table class="table table-sm m-0 align-middle">
                     <thead class="table-light">
                         <tr>
-                            <th>Akun</th>
-                            <th style="width:140px" class="text-end">Debet</th>
-                            <th style="width:140px" class="text-end">Kredit</th>
+                            <th style="width: 140px">Kode Akun</th>
+                            <th>Nama Akun</th>
                             <th>Catatan</th>
+                            <th style="width: 140px" class="text-end">Debit</th>
+                            <th style="width: 140px" class="text-end">Kredit</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach ($jr->lines as $l)
+                        @foreach ($lines as $l)
                             <tr>
-                                <td class="mono">{{ $l->account?->code }} — {{ $l->account?->name }}</td>
-                                <td class="text-end mono">{{ number_format($l->debit, 2, ',', '.') }}</td>
-                                <td class="text-end mono">{{ number_format($l->credit, 2, ',', '.') }}</td>
-                                <td>{{ $l->note }}</td>
+                                <td class="mono">{{ $l->account_code }}</td>
+                                <td>{{ $l->account_name }}</td>
+                                <td class="text-muted">{{ $l->note }}</td>
+                                <td class="text-end mono">{{ $fmt($l->debit) }}</td>
+                                <td class="text-end mono">{{ $fmt($l->credit) }}</td>
                             </tr>
                         @endforeach
-                        <tr class="table-light">
-                            <td class="tot text-end">Total</td>
-                            <td class="text-end mono tot">{{ number_format($totalDebit, 2, ',', '.') }}</td>
-                            <td class="text-end mono tot">{{ number_format($totalCredit, 2, ',', '.') }}</td>
-                            <td></td>
-                        </tr>
                     </tbody>
+                    <tfoot>
+                        <tr class="fw-bold">
+                            <td colspan="3" class="text-end">Total</td>
+                            <td class="text-end mono">{{ $fmt($totalDebit) }}</td>
+                            <td class="text-end mono">{{ $fmt($totalCredit) }}</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         </div>
