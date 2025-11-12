@@ -16,11 +16,26 @@
         </a>
 
         <div class="section">Produksi</div>
-        <a class="nav-link {{ request()->is('cutting*') ? 'active' : '' }}" href="{{ url('/cutting') }}">
-            <i class="bi bi-scissors"></i><span>Cutting</span>
+        {{-- Kirim kain ke tukang (auto-batch per operator) --}}
+        <a class="nav-link {{ request()->routeIs('production.external.send.*') ? 'active' : '' }}"
+            href="{{ route('production.external.send.create') }}">
+            <i class="bi bi-truck"></i><span>Kirim ke Tukang Cutting</span>
         </a>
-        <a class="nav-link {{ request()->is('sewing*') ? 'active' : '' }}" href="{{ url('/sewing') }}">
-            <i class="bi bi-needle"></i><span>Sewing</span>
+
+        {{-- Terima hasil cutting eksternal (draft -> post) --}}
+        <a class="nav-link {{ request()->routeIs('production.cutting.receive.*') ? 'active' : '' }}"
+            href="{{ route('production.cutting.receive.create') }}">
+            <i class="bi bi-inbox"></i><span>Terima Hasil Cutting</span>
+        </a>
+
+        <a class="nav-link {{ request()->routeIs('production.cutting.internal.*') ? 'active' : '' }}"
+            href="{{ route('production.cutting.internal.create') }}">
+            <i class="bi bi-scissors"></i><span>Cutting Internal (kg→pcs)</span>
+        </a>
+
+        <a class="nav-link {{ request()->routeIs('production.kitting.*') ? 'active' : '' }}"
+            href="{{ route('production.kitting.create') }}">
+            <i class="bi bi-box2-heart"></i><span>Kitting (BSJ Set)</span>
         </a>
 
         <div class="section">Inventory</div>
@@ -45,7 +60,6 @@
             <i class="bi bi-person-lines-fill"></i><span>Data Gaji</span>
         </a>
 
-        {{-- ===================== --}}
         <div class="section">Accounting</div>
         <a class="nav-link {{ request()->routeIs('accounting.journals.*') ? 'active' : '' }}"
             href="{{ route('accounting.journals.index') }}">
@@ -55,8 +69,6 @@
             href="{{ route('accounting.ledger') }}">
             <i class="bi bi-columns-gap"></i><span>Ledger</span>
         </a>
-        {{-- Jika nanti ada menu lain (Chart of Accounts, Trial Balance, dsb), tinggal tambah di sini. --}}
-        {{-- Route yang belum ada biarkan saja tidak ditampilkan untuk sekarang. --}}
 
     </nav>
 </aside>

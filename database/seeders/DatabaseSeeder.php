@@ -16,13 +16,14 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        $this->call([
-            SupplierSeeder::class,
-            WarehouseItemSeeder::class,
-            ItemSeeder::class,
-            AccountSeeder::class,
-            OpeningBalanceSeeder::class,
-        ]);
+        // $this->call([
+        //     SupplierSeeder::class,
+        //     WarehouseItemSeeder::class,
+        //     ItemSeeder::class,
+        //     AccountSeeder::class,
+        //     OpeningBalanceSeeder::class,
+        // ]);
+        $this->call(CoreProductionSeeder::class);
 
     }
 }

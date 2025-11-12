@@ -3,8 +3,8 @@
 use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Inventory\MutationController;
 use App\Http\Controllers\Inventory\StockController;
-use App\Http\Controllers\Purchasing\PurchaseController;
-use App\Http\Controllers\Purchasing\PurchasePaymentController;
+use App\Http\Controllers\Production\CuttingInternalController;
+use App\Http\Controllers\Production\CuttingReceiptController;
 
 Route::get('/dashboard', function () {
     return view('welcome');
@@ -52,4 +52,33 @@ Route::prefix('purchasing')->name('purchasing.')->group(function () {
         ->name('invoices.payments.destroy');
     Route::post('/invoices/{invoice}/post', [PurchaseController::class, 'post'])
         ->name('invoices.post');
+});
+
+use App\Http\Controllers\Production\ExternalTransferController;
+use App\Http\Controllers\Production\KittingController;
+
+Route::prefix('production')->name('production.')->group(function () {
+    // Tahap 1: Kirim ke tukang (create + store)
+    Route::get('/external/send', [ExternalTransferController::class, 'create'])->name('external.send.create');
+    Route::post('/external/send', [ExternalTransferController::class, 'store'])->name('external.send.store');
+
+    // Tahap 2: Terima hasil cutting (draft + post)
+    Route::get('/cutting/receive/create', [CuttingReceiptController::class, 'create'])->name('cutting.receive.create');
+    Route::post('/cutting/receive', [CuttingReceiptController::class, 'storeDraft'])->name('cutting.receive.storeDraft');
+    Route::post('/cutting/receive/{id}/post', [CuttingReceiptController::class, 'post'])->name('cutting.receive.post');
+});
+
+use App\Http\Controllers\Purchasing\PurchaseController;
+
+Route::prefix('production')->name('production.')->group(function () {
+    // Tahap 3: Cutting Internal (kg/m → pcs)
+    Route::get('/cutting-internal/create', [CuttingInternalController::class, 'create'])->name('cutting.internal.create');
+    Route::post('/cutting-internal', [CuttingInternalController::class, 'store'])->name('cutting.internal.store');
+});
+
+use App\Http\Controllers\Purchasing\PurchasePaymentController;
+
+Route::prefix('production')->name('production.')->group(function () {
+    Route::get('/kitting/create', [KittingController::class, 'create'])->name('kitting.create');
+    Route::post('/kitting', [KittingController::class, 'store'])->name('kitting.store');
 });
