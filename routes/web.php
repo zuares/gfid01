@@ -41,9 +41,6 @@ Route::prefix('inventory')->name('inventory.')->group(function () {
 
 });
 
-// routes/web.php
-// routes/web.php
-// routes/web.php
 Route::prefix('purchasing')->name('purchasing.')->group(function () {
     // ... route invoice index/show/create/store dsb
     Route::post('/invoices/{invoice}/payments', [PurchasePaymentController::class, 'store'])
