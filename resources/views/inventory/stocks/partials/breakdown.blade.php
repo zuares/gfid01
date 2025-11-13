@@ -48,7 +48,8 @@
             border-radius: var(--radius);
             overflow: hidden;
             background: var(--bdk-bg);
-            box-shadow: 0 1px 0 color-mix(in srgb, var(--bdk-ink) 6%, transparent 94%),
+            box-shadow:
+                0 1px 0 color-mix(in srgb, var(--bdk-ink) 6%, transparent 94%),
                 0 8px 24px color-mix(in srgb, var(--bdk-ink) 4%, transparent 96%);
             transition: background .2s, color .2s, border-color .2s;
         }
@@ -68,7 +69,7 @@
 
         .bdk-table {
             width: 100%;
-            border-collapse: collapse
+            border-collapse: collapse;
         }
 
         .bdk-table th,
@@ -77,7 +78,6 @@
             border-bottom: 1px solid var(--bdk-line);
             vertical-align: middle;
             color: var(--bdk-ink);
-            background: var(--bdk-bg);
         }
 
         .bdk-table thead th {
@@ -91,39 +91,43 @@
             z-index: 1;
         }
 
-        .bdk-table tbody tr:hover {
+        /* Hover row – pakai ke <tr> dan <td> sekaligus */
+        .bdk-table tbody tr {
+            transition: background .15s ease;
+        }
+
+        .bdk-table tbody tr:hover td {
             background: var(--bdk-hover);
-            transition: background .15s ease
         }
 
         .mono {
             font-variant-numeric: tabular-nums;
-            font-family: ui-monospace, Menlo, Consolas, monospace
+            font-family: ui-monospace, Menlo, Consolas, monospace;
         }
 
         .muted {
-            color: var(--bdk-muted)
+            color: var(--bdk-muted);
         }
 
         /* Tone qty */
         .qty-ok {
             color: var(--qty-ok);
-            font-weight: 700
+            font-weight: 700;
         }
 
         .qty-low {
             color: var(--qty-low);
-            font-weight: 700
+            font-weight: 700;
         }
 
         .qty-zero {
             color: var(--qty-zero);
-            font-weight: 700
+            font-weight: 700;
         }
 
         .qty-neg {
             color: var(--qty-neg);
-            font-weight: 700
+            font-weight: 700;
         }
 
         .badge-kosong {
@@ -145,36 +149,45 @@
             color: var(--bdk-ink);
             background: transparent;
             text-decoration: none;
-            transition: all .15s ease
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            transition: all .15s ease;
+        }
+
+        .btn-detail i {
+            font-size: .85em;
         }
 
         .btn-detail:hover {
-            background: color-mix(in srgb, var(--brand) 10%, transparent 90%)
+            background: color-mix(in srgb, var(--brand) 12%, transparent 88%);
+            border-color: color-mix(in srgb, var(--brand) 40%, var(--bdk-line) 60%);
+            transform: translateY(-1px);
         }
 
-        @media (max-width:576px) {
+        @media (max-width: 576px) {
             .bdk-hd {
-                padding: .6rem .8rem
+                padding: .6rem .8rem;
             }
 
             .bdk-table th,
             .bdk-table td {
-                padding: .5rem .7rem
+                padding: .5rem .7rem;
             }
 
             .bdk-ttl {
-                font-size: .9rem
+                font-size: .9rem;
             }
 
             .btn-detail {
                 padding: .22rem .5rem;
-                font-size: .7rem
+                font-size: .7rem;
             }
         }
     </style>
 @endpush
 
-<div class="wrap"><!-- konsisten dengan halaman lain -->
+<div class="wrap">
     <div class="row g-3">
 
         {{-- Kontrakan --}}
@@ -203,7 +216,8 @@
                                             : '-';
                                     @endphp
                                     <tr>
-                                        <td class="fw-semibold text-nowrap">{{ $r->wh_code }} — {{ $r->wh_name }}
+                                        <td class="fw-semibold text-nowrap">
+                                            {{ $r->wh_code }} — {{ $r->wh_name }}
                                         </td>
                                         <td class="text-end mono {{ $tone($r->qty) }}">
                                             {{ $fmtQty($r->qty) }}
@@ -217,7 +231,62 @@
                                             <a class="btn-detail"
                                                 aria-label="Lihat mutasi item {{ $itemCode }} di gudang {{ $r->wh_name }}"
                                                 href="{{ route('inventory.mutations.index', ['item_code' => $itemCode, 'warehouse' => $r->wh_id]) }}">
-                                                Detail
+                                                <i class="bi bi-clock-history"></i>
+                                                <span>Detail</span>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        @endif
+
+        {{-- Makloon (CUT-EXT / SEW-EXT) --}}
+        @if (isset($makloon) && $makloon->count())
+            <div class="col-12">
+                <div class="bdk">
+                    <div class="bdk-hd">
+                        <div class="bdk-ttl">Makloon (CUT-EXT / SEW-EXT)</div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="bdk-table">
+                            <thead>
+                                <tr>
+                                    <th>Gudang</th>
+                                    <th class="text-end">Qty</th>
+                                    <th>Unit</th>
+                                    <th class="text-nowrap">Updated</th>
+                                    <th class="text-end"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach ($makloon as $r)
+                                    @php
+                                        $updated = $r->last_updated
+                                            ? \Carbon\Carbon::parse($r->last_updated)->format('Y-m-d H:i')
+                                            : '-';
+                                    @endphp
+                                    <tr>
+                                        <td class="fw-semibold text-nowrap">
+                                            {{ $r->wh_code }} — {{ $r->wh_name }}
+                                        </td>
+                                        <td class="text-end mono {{ $tone($r->qty) }}">
+                                            {{ $fmtQty($r->qty) }}
+                                            @if ((float) $r->qty === 0.0)
+                                                <span class="badge-kosong">KOSONG</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-nowrap">{{ $r->unit }}</td>
+                                        <td class="small text-nowrap muted">{{ $updated }}</td>
+                                        <td class="text-end">
+                                            <a class="btn-detail"
+                                                aria-label="Lihat mutasi item {{ $itemCode }} di gudang {{ $r->wh_name }}"
+                                                href="{{ route('inventory.mutations.index', ['item_code' => $itemCode, 'warehouse' => $r->wh_id]) }}">
+                                                <i class="bi bi-clock-history"></i>
+                                                <span>Detail</span>
                                             </a>
                                         </td>
                                     </tr>
@@ -254,7 +323,9 @@
                                         : '-';
                                 @endphp
                                 <tr>
-                                    <td class="fw-semibold text-nowrap">{{ $r->wh_code }} — {{ $r->wh_name }}</td>
+                                    <td class="fw-semibold text-nowrap">
+                                        {{ $r->wh_code }} — {{ $r->wh_name }}
+                                    </td>
                                     <td class="text-end mono {{ $tone($r->qty) }}">
                                         {{ $fmtQty($r->qty) }}
                                         @if ((float) $r->qty === 0.0)
@@ -267,7 +338,8 @@
                                         <a class="btn-detail"
                                             aria-label="Lihat mutasi item {{ $itemCode }} di gudang {{ $r->wh_name }}"
                                             href="{{ route('inventory.mutations.index', ['item_code' => $itemCode, 'warehouse' => $r->wh_id]) }}">
-                                            Detail
+                                            <i class="bi bi-clock-history"></i>
+                                            <span>Detail</span>
                                         </a>
                                     </td>
                                 </tr>

@@ -6,6 +6,13 @@ use Illuminate\Support\Facades\DB;
 
 class InventoryService
 {
+    /**
+     * Mutasi stok per LOT per gudang.
+     *
+     * Dipakai oleh:
+     * - PurchaseController@post()           → PURCHASE_IN
+     * - transfer()                         → TRANSFER_IN / TRANSFER_OUT
+     */
     public function mutate(
         int $warehouseId,
         int $lotId,
@@ -15,60 +22,88 @@ class InventoryService
         string $unit,
         ?string $refCode = null,
         ?string $note = null,
-        ?string $dateTime = null
+        ?string $date = null// YYYY-MM-DD
     ): void {
-        $dateTime = $dateTime ?: now()->toDateTimeString();
+        $date = $date ?: now()->toDateString();
 
-        // 🔹 Ambil item_code dari LOT → ITEM (supaya bisa diisi ke inventory_stocks)
+        // 🔹 Ambil info LOT + ITEM
         $lot = DB::table('lots')
             ->join('items', 'items.id', '=', 'lots.item_id')
             ->where('lots.id', $lotId)
-            ->select('lots.id', 'lots.item_id', 'items.code as item_code')
+            ->select(
+                'lots.id as lot_id',
+                'lots.item_id',
+                'items.code as item_code'
+            )
             ->first();
 
         if (!$lot) {
             throw new \RuntimeException("LOT {$lotId} tidak ditemukan.");
         }
 
-        DB::transaction(function () use ($warehouseId, $lotId, $type, $qtyIn, $qtyOut, $unit, $refCode, $note, $dateTime, $lot) {
-            // Ledger mutasi (isi item_code kalau kolomnya ada di tabel kamu)
+        DB::transaction(function () use (
+            $warehouseId,
+            $lot,
+            $lotId,
+            $type,
+            $qtyIn,
+            $qtyOut,
+            $unit,
+            $refCode,
+            $note,
+            $date
+        ) {
+            // 1) INSERT ke inventory_mutations
             DB::table('inventory_mutations')->insert([
                 'warehouse_id' => $warehouseId,
                 'lot_id' => $lotId,
-                'ref_code' => $refCode,
-                'type' => $type,
+                'item_id' => $lot->item_id,
+                'item_code' => $lot->item_code,
+                'type' => $type, // PURCHASE_IN / TRANSFER_OUT / TRANSFER_IN / dll
                 'qty_in' => $qtyIn,
                 'qty_out' => $qtyOut,
                 'unit' => $unit,
-                'date' => $dateTime,
+                'ref_code' => $refCode,
                 'note' => $note,
+                'date' => now(), // kolom DATE (bukan datetime)
                 'created_at' => now(),
                 'updated_at' => now(),
-                // 'item_code'  => $lot->item_code, // ← uncomment jika kolomnya ada
             ]);
 
-            // Upsert saldo per gudang+lot
-            $row = DB::table('inventory_stocks')->where([
-                'warehouse_id' => $warehouseId,
-                'lot_id' => $lotId,
-            ])->first();
+            // 2) HITUNG ULANG saldo stok untuk kombinasi (warehouse_id + lot_id + unit)
+            $agg = DB::table('inventory_mutations')
+                ->selectRaw('COALESCE(SUM(qty_in - qty_out), 0) as qty')
+                ->where('warehouse_id', $warehouseId)
+                ->where('lot_id', $lotId)
+                ->where('unit', $unit)
+                ->first();
 
-            $delta = $qtyIn - $qtyOut;
+            $qtyNow = (float) ($agg->qty ?? 0);
 
-            if ($row) {
-                DB::table('inventory_stocks')->where('id', $row->id)->update([
-                    'qty' => max(0, ($row->qty + $delta)), // jaga tak negatif
-                    'unit' => $unit,
-                    'item_code' => $lot->item_code, // ✅ WAJIB
-                    'updated_at' => now(),
-                ]);
+            // 3) UPDATE / INSERT ke inventory_stocks (per gudang + LOT)
+            $existing = DB::table('inventory_stocks')
+                ->where('warehouse_id', $warehouseId)
+                ->where('lot_id', $lotId)
+                ->where('unit', $unit)
+                ->first();
+
+            if ($existing) {
+                DB::table('inventory_stocks')
+                    ->where('id', $existing->id)
+                    ->update([
+                        'item_id' => $lot->item_id,
+                        'item_code' => $lot->item_code,
+                        'qty' => $qtyNow,
+                        'updated_at' => now(),
+                    ]);
             } else {
                 DB::table('inventory_stocks')->insert([
                     'warehouse_id' => $warehouseId,
                     'lot_id' => $lotId,
-                    'qty' => max(0, $delta),
+                    'item_id' => $lot->item_id,
+                    'item_code' => $lot->item_code,
                     'unit' => $unit,
-                    'item_code' => $lot->item_code, // ✅ WAJIB
+                    'qty' => $qtyNow,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -76,6 +111,17 @@ class InventoryService
         });
     }
 
+    /**
+     * Transfer stok antar gudang, per LOT.
+     *
+     * Dipakai oleh:
+     * - ExternalTransferService::send()
+     *
+     * Akan membuat:
+     * - Mutasi TRANSFER_OUT di gudang asal
+     * - Mutasi TRANSFER_IN di gudang tujuan
+     * Dan otomatis update inventory_stocks di kedua gudang.
+     */
     public function transfer(
         int $fromWarehouseId,
         int $toWarehouseId,
@@ -83,11 +129,39 @@ class InventoryService
         float $qty,
         string $unit,
         ?string $refCode = null,
-        ?string $note = null
+        ?string $note = null,
+        ?string $date = null// YYYY-MM-DD
     ): void {
-        DB::transaction(function () use ($fromWarehouseId, $toWarehouseId, $lotId, $qty, $unit, $refCode, $note) {
-            $this->mutate($fromWarehouseId, $lotId, 'TRANSFER_OUT', 0, $qty, $unit, $refCode, $note);
-            $this->mutate($toWarehouseId, $lotId, 'TRANSFER_IN', $qty, 0, $unit, $refCode, $note);
-        });
+        $date = $date ?: now()->toDateString();
+
+        if ($qty <= 0) {
+            return; // tidak ada yang dipindah
+        }
+
+        // 🔻 KELUAR dari gudang asal
+        $this->mutate(
+            warehouseId: $fromWarehouseId,
+            lotId: $lotId,
+            type: 'TRANSFER_OUT',
+            qtyIn: 0.0,
+            qtyOut: $qty,
+            unit: $unit,
+            refCode: $refCode,
+            note: $note ? $note . ' (OUT)' : 'Transfer OUT',
+            date: now(),
+        );
+
+        // 🔺 MASUK ke gudang tujuan
+        $this->mutate(
+            warehouseId: $toWarehouseId,
+            lotId: $lotId,
+            type: 'TRANSFER_IN',
+            qtyIn: $qty,
+            qtyOut: 0.0,
+            unit: $unit,
+            refCode: $refCode,
+            note: $note ? $note . ' (IN)' : 'Transfer IN',
+            date: now(),
+        );
     }
 }

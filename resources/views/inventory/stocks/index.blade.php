@@ -1,5 +1,5 @@
 @extends('layouts.app')
-@section('title', 'Inventory • Stocks (Per Item)')
+@section('title', 'Inventory • Stocks (Per Item & Gudang)')
 
 @push('head')
     <style>
@@ -290,8 +290,15 @@
 
         {{-- HEADER FILTER --}}
         <div class="header-wrap mb-3">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <h1 class="h5 m-0">Inventory • Stocks (Per Item)</h1>
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                <div>
+                    <h1 class="h5 m-0">Inventory • Stocks (Per Item & Gudang)</h1>
+                    <div class="small muted mt-1">
+                        Klik baris item untuk melihat sebaran stok per gudang:
+                        <strong>Kontrakan</strong>, <strong>Makloon (CUT-EXT / SEW-EXT)</strong>, dan <strong>Gudang
+                            Lain</strong>.
+                    </div>
+                </div>
 
                 <form id="miniFilter" class="d-flex align-items-center flex-wrap gap-2" method="GET"
                     action="{{ route('inventory.stocks.index') }}" autocomplete="off">

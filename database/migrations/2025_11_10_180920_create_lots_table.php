@@ -10,14 +10,15 @@ return new class extends Migration
     {
         Schema::create('lots', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('item_id')->constrained('items');
-            $t->string('code')->unique(); // LOT-FLC280BLK-YYYYMMDD-###
-            $t->string('unit', 16)->default('kg');
-            $t->decimal('initial_qty', 12, 2);
-            $t->decimal('unit_cost', 14, 0)->default(0);
-            $t->date('date');
+            $t->unsignedBigInteger('item_id');
+            $t->string('code')->unique(); // LOT-XXX-YYYYMMDD-###
+            $t->string('unit', 16);
+            $t->decimal('initial_qty', 18, 4);
+            $t->decimal('unit_cost', 18, 4)->default(0);
+            $t->date('date'); // tanggal LOT dibuat
             $t->timestamps();
         });
+
     }
     public function down(): void
     {

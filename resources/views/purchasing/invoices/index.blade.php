@@ -62,7 +62,8 @@
 
         /* Table minimal */
         .table {
-            margin: 0
+            margin: ;
+
         }
 
         .table thead th {
@@ -76,12 +77,22 @@
 
         .table th,
         .table td {
-            border: 0
+            border: 0;
+            background: var(--card);
         }
 
         .table tbody tr+tr td {
-            border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent 20%)
+            border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent 20%);
         }
+
+
+
+        .table tbody tr {
+            transition: background-color .15s ease, box-shadow .15s ease;
+        }
+
+
+
 
         .badge {
             border-radius: 999px;
@@ -91,6 +102,57 @@
 
         .row-gap {
             row-gap: .5rem
+        }
+
+        /* Status pill */
+        .status-pill {
+            border-radius: 999px;
+            font-size: .72rem;
+            padding: .14rem .55rem;
+            display: inline-flex;
+            align-items: center;
+            gap: .3rem;
+            border: 1px solid color-mix(in srgb, var(--line) 80%, transparent 20%);
+            background: color-mix(in srgb, var(--card) 85%, var(--line) 15%);
+            white-space: nowrap;
+        }
+
+        .status-pill span.label {
+            letter-spacing: .04em;
+            font-size: .7rem;
+            text-transform: uppercase;
+            opacity: .8;
+        }
+
+        .status-dot {
+            width: .55rem;
+            height: .55rem;
+            border-radius: 999px;
+        }
+
+        .status-dot.doc-draft {
+            background-color: #ffc107;
+            /* warning-ish */
+        }
+
+        .status-dot.doc-posted {
+            background-color: #28a745;
+            /* success-ish */
+        }
+
+        .status-dot.pay-unpaid {
+            background-color: #dc3545;
+            /* danger-ish */
+        }
+
+        .status-dot.pay-partial {
+            background-color: #ffc107;
+            /* warning-ish */
+        }
+
+        .status-dot.pay-paid {
+            background-color: #28a745;
+            /* success-ish */
         }
     </style>
 @endpush
@@ -191,8 +253,8 @@
                             <th class="text-end" style="width:14%">Total</th>
                             <th class="text-end" style="width:14%">Dibayar</th>
                             <th class="text-end" style="width:14%">Sisa</th>
-                            <th style="width:10%">Status</th>
-                            <th style="width:8%"></th>
+                            <th style="width:16%">Status</th>
+                            <th style="width:8%" class="text-end">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -215,28 +277,84 @@
                                         $payStatus
                                     ] ?? 'secondary';
                                 $docBadge = $inv->status === 'posted' ? 'success' : 'secondary';
+
+                                $payLabel =
+                                    [
+                                        'paid' => 'Lunas',
+                                        'partial' => 'Sebagian',
+                                        'unpaid' => 'Belum Bayar',
+                                    ][$payStatus] ?? strtoupper($payStatus);
                             @endphp
                             <tr>
+                                {{-- Kode + chip kecil --}}
                                 <td class="mono">
                                     {{ $inv->code }}
                                     <div class="small mt-1">
-                                        <span class="badge bg-{{ $docBadge }}">{{ strtoupper($inv->status) }}</span>
+
                                     </div>
                                 </td>
-                                <td class="mono">{{ \Illuminate\Support\Carbon::parse($inv->date)->toDateString() }}</td>
+
+                                {{-- Tanggal --}}
+                                <td class="mono">
+                                    {{ \Illuminate\Support\Carbon::parse($inv->date)->toDateString() }}
+                                </td>
+
+                                {{-- Supplier + note singkat --}}
                                 <td>
                                     {{ $inv->supplier?->name ?? '—' }}
                                     @if (!empty($inv->note))
-                                        <div class="small muted">{{ \Illuminate\Support\Str::limit($inv->note, 64) }}</div>
+                                        <div class="small muted">
+                                            {{ \Illuminate\Support\Str::limit($inv->note, 64) }}
+                                        </div>
                                     @endif
                                 </td>
+
+                                {{-- Angka --}}
                                 <td class="mono text-end">Rp {{ $fmt($total) }}</td>
                                 <td class="mono text-end">Rp {{ $fmt($paid) }}</td>
                                 <td class="mono text-end">Rp {{ $fmt($remainRow) }}</td>
-                                <td><span class="badge bg-{{ $payBadge }}">{{ strtoupper($payStatus) }}</span></td>
+
+                                {{-- Status visual --}}
+                                <td>
+                                    <div class="d-flex flex-column gap-1">
+                                        {{-- Dokumen --}}
+                                        <span class="status-pill">
+                                            <span
+                                                class="status-dot {{ $inv->status === 'posted' ? 'doc-posted' : 'doc-draft' }}"></span>
+                                            <span class="label">DOC</span>
+                                            <span>{{ $inv->status === 'posted' ? 'Posted' : 'Draft' }}</span>
+                                        </span>
+
+                                        {{-- Pembayaran --}}
+                                        <span class="status-pill">
+                                            <span
+                                                class="status-dot
+                                                {{ $payStatus === 'paid' ? 'pay-paid' : ($payStatus === 'partial' ? 'pay-partial' : 'pay-unpaid') }}">
+                                            </span>
+                                            <span class="label">PAY</span>
+                                            <span>{{ $payLabel }}</span>
+                                        </span>
+                                    </div>
+                                </td>
+
+                                {{-- Aksi pakai icon --}}
                                 <td class="text-end">
-                                    <a href="{{ route('purchasing.invoices.show', $inv) }}"
-                                        class="btn btn-ghost btn-sm">Detail</a>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        {{-- Detail --}}
+                                        <a href="{{ route('purchasing.invoices.show', $inv) }}" class="btn btn-ghost"
+                                            title="Lihat Detail" aria-label="Lihat Detail">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+
+                                        {{-- Edit detail (kalau masih draft) --}}
+                                        @if ($inv->status === 'draft')
+                                            <a href="{{ route('purchasing.invoices.lines.edit', $inv) }}"
+                                                class="btn btn-outline-primary" title="Edit Detail"
+                                                aria-label="Edit Detail">
+                                                <i class="bi bi-pencil-square"></i>
+                                            </a>
+                                        @endif
+                                    </div>
                                 </td>
                             </tr>
                         @empty

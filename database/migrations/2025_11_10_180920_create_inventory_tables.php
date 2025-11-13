@@ -11,36 +11,37 @@ return new class extends Migration
         // saldo per gudang per LOT
         Schema::create('inventory_stocks', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('warehouse_id')->constrained('warehouses');
-            $t->foreignId('lot_id')->constrained('lots');
-            $t->decimal('qty', 12, 2)->default(0);
-            $t->string('unit', 16)->default('kg');
+            $t->unsignedBigInteger('warehouse_id');
+            $t->unsignedBigInteger('lot_id');
+            $t->unsignedBigInteger('item_id');
+            $t->string('item_code');
+            $t->string('unit', 16);
+            $t->decimal('qty', 18, 4)->default(0);
             $t->timestamps();
-            $t->unique(['warehouse_id', 'lot_id']);
+
+            $t->unique(['warehouse_id', 'lot_id', 'unit']); // 1 gudang, 1 lot, 1 unit
         });
 
         // jejak mutasi (ledger)
         Schema::create('inventory_mutations', function (Blueprint $t) {
             $t->id();
-            $t->foreignId('warehouse_id')->constrained('warehouses');
-            $t->foreignId('lot_id')->constrained('lots');
-            $t->string('ref_code')->nullable(); // INV-..., CUT-..., SJH-..., TRF-...
-            $t->enum('type', [
-                'PURCHASE_IN',
-                'CUTTING_USE',
-                'PRODUCTION_IN',
-                'TRANSFER_OUT',
-                'TRANSFER_IN',
-                'ADJUSTMENT',
-                'SALE_OUT',
-            ]);
-            $t->decimal('qty_in', 12, 2)->default(0);
-            $t->decimal('qty_out', 12, 2)->default(0);
+            $t->unsignedBigInteger('warehouse_id');
+            $t->unsignedBigInteger('lot_id');
+            $t->unsignedBigInteger('item_id');
+            $t->string('item_code');
+            $t->string('type'); // PURCHASE_IN, CUTTING_OUT, etc.
+            $t->decimal('qty_in', 18, 4)->default(0);
+            $t->decimal('qty_out', 18, 4)->default(0);
             $t->string('unit', 16);
-            $t->dateTime('date');
-            $t->text('note')->nullable();
+            $t->string('ref_code')->nullable();
+            $t->string('note')->nullable();
+            $t->date('date'); // cukup DATE saja
             $t->timestamps();
+
+            $t->index(['warehouse_id', 'lot_id']);
+            $t->index(['item_id']);
         });
+
     }
 
     public function down(): void

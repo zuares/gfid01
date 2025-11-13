@@ -122,7 +122,61 @@ class StockController extends Controller
         };
     }
 
-    /** Breakdown per gudang + total mutasi IN/OUT */
+    /** Breakdown per gudang + total mutasi IN/OUT 0001*/
+    // public function warehousesBreakdown(Request $r, string $itemCode)
+    // {
+    //     $useItemCode = Schema::hasColumn('inventory_stocks', 'item_code');
+    //     $unit = $r->get('unit');
+
+    //     if ($useItemCode) {
+    //         $rows = DB::table('inventory_stocks')
+    //             ->join('warehouses', 'inventory_stocks.warehouse_id', '=', 'warehouses.id')
+    //             ->where('inventory_stocks.item_code', $itemCode)
+    //             ->when($unit, fn($q) => $q->where('inventory_stocks.unit', $unit))
+    //             ->groupBy('warehouses.id', 'warehouses.code', 'warehouses.name')
+    //             ->selectRaw('warehouses.id as wh_id, warehouses.code as wh_code, warehouses.name as wh_name')
+    //             ->selectRaw('SUM(inventory_stocks.qty) AS qty')
+    //             ->selectRaw('MIN(inventory_stocks.unit) AS unit')
+    //             ->selectRaw('MAX(inventory_stocks.updated_at) AS last_updated')
+    //             ->get();
+    //     } else {
+    //         $rows = DB::table('inventory_stocks')
+    //             ->join('warehouses', 'inventory_stocks.warehouse_id', '=', 'warehouses.id')
+    //             ->join('lots', 'inventory_stocks.lot_id', '=', 'lots.id')
+    //             ->join('items', 'lots.item_id', '=', 'items.id')
+    //             ->where('items.code', $itemCode)
+    //             ->when($unit, fn($q) => $q->where('inventory_stocks.unit', $unit))
+    //             ->groupBy('warehouses.id', 'warehouses.code', 'warehouses.name')
+    //             ->selectRaw('warehouses.id as wh_id, warehouses.code as wh_code, warehouses.name as wh_name')
+    //             ->selectRaw('SUM(inventory_stocks.qty) AS qty')
+    //             ->selectRaw('MIN(inventory_stocks.unit) AS unit')
+    //             ->selectRaw('MAX(inventory_stocks.updated_at) AS last_updated')
+    //             ->get();
+    //     }
+
+    //     // === Tambah total mutasi IN / OUT per gudang
+    //     foreach ($rows as $row) {
+    //         $mut = DB::table('inventory_mutations')
+    //             ->when($useItemCode,
+    //                 fn($q) => $q->where('item_code', $itemCode),
+    //                 fn($q) => $q->join('lots', 'inventory_mutations.lot_id', '=', 'lots.id')
+    //                     ->join('items', 'lots.item_id', '=', 'items.id')
+    //                     ->where('items.code', $itemCode))
+    //             ->where('warehouse_id', $row->wh_id)
+    //             ->selectRaw('SUM(qty_in) AS in_qty, SUM(qty_out) AS out_qty')
+    //             ->first();
+
+    //         $row->in_qty = (float) ($mut->in_qty ?? 0);
+    //         $row->out_qty = (float) ($mut->out_qty ?? 0);
+    //     }
+
+    //     $kontrakan = $rows->filter(fn($x) => str_contains(mb_strtolower($x->wh_name), 'kontrakan'));
+    //     $others = $rows->reject(fn($x) => str_contains(mb_strtolower($x->wh_name), 'kontrakan'));
+
+    //     return view('inventory.stocks.partials.breakdown', compact('itemCode', 'kontrakan', 'others'))->render();
+    // }
+
+    /** Breakdown per gudang + total mutasi IN/OUT 0002*/
     public function warehousesBreakdown(Request $r, string $itemCode)
     {
         $useItemCode = Schema::hasColumn('inventory_stocks', 'item_code');
@@ -157,11 +211,13 @@ class StockController extends Controller
         // === Tambah total mutasi IN / OUT per gudang
         foreach ($rows as $row) {
             $mut = DB::table('inventory_mutations')
-                ->when($useItemCode,
+                ->when(
+                    $useItemCode,
                     fn($q) => $q->where('item_code', $itemCode),
                     fn($q) => $q->join('lots', 'inventory_mutations.lot_id', '=', 'lots.id')
                         ->join('items', 'lots.item_id', '=', 'items.id')
-                        ->where('items.code', $itemCode))
+                        ->where('items.code', $itemCode)
+                )
                 ->where('warehouse_id', $row->wh_id)
                 ->selectRaw('SUM(qty_in) AS in_qty, SUM(qty_out) AS out_qty')
                 ->first();
@@ -170,9 +226,30 @@ class StockController extends Controller
             $row->out_qty = (float) ($mut->out_qty ?? 0);
         }
 
-        $kontrakan = $rows->filter(fn($x) => str_contains(mb_strtolower($x->wh_name), 'kontrakan'));
-        $others = $rows->reject(fn($x) => str_contains(mb_strtolower($x->wh_name), 'kontrakan'));
+        // === Kelompokkan:
+        // 1) Kontrakan
+        // 2) Makloon (CUT-EXT-*, SEW-EXT-*)
+        // 3) Gudang lain
+        $kontrakan = $rows->filter(function ($x) {
+            return str_contains(mb_strtolower($x->wh_name), 'kontrakan');
+        });
 
-        return view('inventory.stocks.partials.breakdown', compact('itemCode', 'kontrakan', 'others'))->render();
+        $makloon = $rows->filter(function ($x) {
+            return str_starts_with($x->wh_code, 'CUT-EXT-')
+            || str_starts_with($x->wh_code, 'SEW-EXT-');
+        });
+
+        $others = $rows->reject(function ($x) use ($kontrakan, $makloon) {
+            return $kontrakan->contains('wh_id', $x->wh_id)
+            || $makloon->contains('wh_id', $x->wh_id);
+        });
+
+        return view('inventory.stocks.partials.breakdown', compact(
+            'itemCode',
+            'kontrakan',
+            'makloon',
+            'others'
+        ))->render();
     }
+
 }

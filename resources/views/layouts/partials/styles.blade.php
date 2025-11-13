@@ -183,4 +183,29 @@
         font-variant-numeric: tabular-nums;
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace
     }
+
+    .table tbody tr:hover {
+        background: color-mix(in srgb, var(--card) 65%, var(--line) 35%);
+        box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.02);
+    }
+
+    .table tbody tr:hover td {
+        background: transparent !important;
+    }
+
+    .table tbody tr:hover {
+        border-radius: 8px;
+    }
+
+    .btn-ghost:hover i,
+    .btn-outline-primary:hover i {
+        transform: scale(1.15);
+        transition: transform .15s ease;
+    }
+
+    .table tbody tr:hover {
+        background: color-mix(in srgb, var(--card) 55%, var(--line) 45%);
+        box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.04);
+        transform: scale(1.002);
+    }
 </style>

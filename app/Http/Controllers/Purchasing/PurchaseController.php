@@ -10,12 +10,19 @@ use App\Models\Supplier;
 use App\Services\InventoryService;
 use App\Services\JournalService;
 use App\Services\PurchasePaymentService;
-use App\Support\LotCode;
+use Carbon\Carbon;
+use DateTime;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseController extends Controller
 {
+
+    public function __construct(
+        protected InventoryService $inv,
+        protected JournalService $journal,
+        protected PurchasePaymentService $pps,
+    ) {}
     /** List + search + filter tipe item (opsional) + filter payment status */
     public function index(Request $r)
     {
@@ -103,6 +110,78 @@ class PurchaseController extends Controller
             'grandColumn' => $grandCol,
             'sisa' => $sisa,
         ]);
+    }
+
+    public function editLines(PurchaseInvoice $invoice)
+    {
+        if ($invoice->status !== 'draft') {
+            return redirect()
+                ->route('purchasing.invoices.show', $invoice)
+                ->with('error', 'Hanya invoice dengan status DRAFT yang bisa diedit.');
+        }
+
+        $invoice->load(['supplier', 'warehouse', 'lines.item']);
+
+        return view('purchasing.edit', [
+            'invoice' => $invoice,
+        ]);
+    }
+
+    /**
+     * Update qty & harga per baris invoice.
+     */
+    public function updateLines(Request $request, PurchaseInvoice $invoice)
+    {
+        if ($invoice->status !== 'draft') {
+            return redirect()
+                ->route('purchasing.invoices.show', $invoice)
+                ->with('error', 'Invoice yang sudah diposting tidak bisa diubah.');
+        }
+
+        $validated = $request->validate([
+            'lines' => ['required', 'array'],
+            'lines.*.qty' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.unit_cost' => ['nullable', 'numeric', 'min:0'],
+            'next_action' => ['nullable', 'in:preview,post'],
+        ]);
+
+        $linesData = $validated['lines'];
+        $nextAction = $validated['next_action'] ?? 'preview';
+
+        DB::transaction(function () use ($invoice, $linesData) {
+            $subtotal = 0;
+
+            foreach ($linesData as $lineId => $lineInput) {
+                $qty = isset($lineInput['qty']) ? (float) $lineInput['qty'] : 0;
+                $price = isset($lineInput['unit_cost']) ? (float) $lineInput['unit_cost'] : 0;
+
+                $line = $invoice->lines()->whereKey($lineId)->first();
+                if (!$line) {
+                    continue;
+                }
+
+                $line->qty = $qty;
+                $line->unit_cost = $price;
+                $line->save();
+
+                $subtotal += $qty * $price;
+            }
+
+            $invoice->grand_total = $subtotal + (float) ($invoice->other_costs ?? 0);
+            $invoice->save();
+        });
+
+        // Kalau hanya preview → balik ke halaman show
+        if ($nextAction === 'preview') {
+            return redirect()
+                ->route('purchasing.invoices.show', $invoice)
+                ->with('success', 'Detail invoice berhasil diperbarui (draft).');
+        }
+
+        // Kalau tombol "Simpan & Post" ditekan:
+        // Panggil logic post yang sudah ada
+        // Sesuaikan pemanggilan ini dengan method post() kamu
+        return $this->post($request, $invoice);
     }
 
     /** Form create */
@@ -219,7 +298,7 @@ class PurchaseController extends Controller
             /** @var \App\Models\PurchaseInvoice $invoice */
             $invoice = PurchaseInvoice::create([
                 'code' => $invCode,
-                'date' => $trxDate,
+                'date' => now(),
                 'supplier_id' => $data['supplier_id'],
                 'warehouse_id' => $data['warehouse_id'],
                 'note' => $data['note'] ?? null,
@@ -328,97 +407,13 @@ class PurchaseController extends Controller
         return response()->json(['ok' => true, 'data' => $data]);
     }
 
-    public function post(
-        Request $r,
-        PurchaseInvoice $invoice,
-        InventoryService $inv,
-        JournalService $journal,
-        PurchasePaymentService $pps
-    ) {
-        // Reload relasi minimal
-        $invoice->load(['lines.item:id,code', 'payments', 'supplier:id,name', 'warehouse:id,code']);
-
+    public function post(Request $r, PurchaseInvoice $invoice)
+    {
         if ($invoice->status !== 'draft') {
             return back()->with('error', "Invoice {$invoice->code} sudah diposting atau dibatalkan.");
         }
 
-        DB::transaction(function () use ($invoice, $inv, $journal, $pps) {
-            $trxDate = \Carbon\Carbon::parse($invoice->date)->toDateString();
-
-            // === 1) Hitung ulang GRAND TOTAL (lines + other_costs)
-            $grand = 0.0;
-            foreach ($invoice->lines as $ln) {
-                $grand += (float) $ln->qty * (float) $ln->unit_cost;
-            }
-            $grand = round($grand + (float) ($invoice->other_costs ?? 0), 2);
-
-            // === 2) Generate LOT per line + Mutasi PURCHASE_IN
-            foreach ($invoice->lines as $ln) {
-                $itemCode = $ln->item_code ?? $ln->item?->code; // fallback
-                $lotCode = LotCode::nextMaterial((string) $itemCode, new \DateTime($trxDate));
-
-                $lotId = DB::table('lots')->insertGetId([
-                    'item_id' => $ln->item_id,
-                    'code' => $lotCode,
-                    'unit' => $ln->unit,
-                    'initial_qty' => $ln->qty,
-                    'unit_cost' => $ln->unit_cost,
-                    'date' => $trxDate,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                $inv->mutate(
-                    $invoice->warehouse_id,
-                    $lotId,
-                    'PURCHASE_IN',
-                    (float) $ln->qty,
-                    0.0,
-                    (string) $ln->unit,
-                    $invoice->code,
-                    "Pembelian {$itemCode}",
-                    $trxDate . ' 00:00:00'
-                );
-            }
-
-            // === 3) Voucher 1: JURNAL INVOICE (Dr Persediaan, Cr Hutang) FULL GRAND
-            $journal->postPurchaseSplit(
-                refCode: $invoice->code,
-                date: $trxDate,
-                inventoryAmount: $grand,
-                cashPaid: 0.0, // <- tidak kredit kas di voucher invoice
-                payableRemain: $grand, // <- seluruh nilai ke Hutang
-                cashAccountNote: null,
-                memo: $invoice->note
-            );
-
-            // === 4) Voucher 2: JURNAL PEMBAYARAN (jika SUDAH ada payments)
-            //    Dr 2101 Hutang | Cr 1101/1102 sesuai method
-            if ($invoice->payments && $invoice->payments->count() > 0) {
-                foreach ($invoice->payments as $p) {
-                    if ((float) $p->amount <= 0) {
-                        continue;
-                    }
-
-                    $journal->postPaymentPurchase(
-                        refCode: $invoice->code . '/PAY-' . $p->id,
-                        date: \Carbon\Carbon::parse($p->date)->toDateString(),
-                        amount: (float) $p->amount,
-                        method: (string) $p->method,
-                        memo: $p->note
-                    );
-                }
-            }
-
-            // === 5) Update header: status, paid_amount, payment_status
-            $invoice->forceFill([
-                'grand_total' => $grand,
-                'status' => 'posted',
-            ])->save();
-
-            // Recalc (hitung paid_amount & payment_status dari tabel payments)
-            $pps->recalc($invoice->fresh('payments'));
-        });
+        $this->performPosting($invoice);
 
         return redirect()
             ->route('purchasing.invoices.show', $invoice)
@@ -442,6 +437,98 @@ class PurchaseController extends Controller
         $suffix = (int) preg_replace('~^' . preg_quote($prefix, '~') . '~', '', $last);
         return $suffix + 1;
     }
+
+    /**
+     * Logic utama posting invoice (diambil dari method post() lama)
+     */
+    protected function performPosting(PurchaseInvoice $invoice): void
+    {
+        // Reload relasi minimal
+        $invoice->load(['lines.item:id,code', 'payments', 'supplier:id,name', 'warehouse:id,code']);
+
+        // Kalau bukan draft, skip saja
+        if ($invoice->status !== 'draft') {
+            return;
+        }
+
+        DB::transaction(function () use ($invoice) {
+            $trxDate = Carbon::parse($invoice->date)->toDateString();
+
+            // === 1) Hitung ulang GRAND TOTAL (lines + other_costs)
+            $grand = 0.0;
+            foreach ($invoice->lines as $ln) {
+                $grand += (float) $ln->qty * (float) $ln->unit_cost;
+            }
+            $grand = round($grand + (float) ($invoice->other_costs ?? 0), 2);
+
+            // === 2) Generate LOT per line + Mutasi PURCHASE_IN
+            foreach ($invoice->lines as $ln) {
+                $itemCode = $ln->item_code ?? $ln->item?->code; // fallback
+                $lotCode = \App\Support\LotCode::nextMaterial((string) $itemCode, new DateTime($trxDate));
+
+                $lotId = DB::table('lots')->insertGetId([
+                    'item_id' => $ln->item_id,
+                    'code' => $lotCode,
+                    'unit' => $ln->unit,
+                    'initial_qty' => $ln->qty,
+                    'unit_cost' => $ln->unit_cost,
+                    'date' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $this->inv->mutate(
+                    $invoice->warehouse_id,
+                    $lotId,
+                    'PURCHASE_IN',
+                    (float) $ln->qty,
+                    0.0,
+                    (string) $ln->unit,
+                    $invoice->code,
+                    "Pembelian {$itemCode}",
+                    $trxDate . ' 00:00:00'
+                );
+            }
+
+            // === 3) Voucher 1: JURNAL INVOICE (Dr Persediaan, Cr Hutang) FULL GRAND
+            $this->journal->postPurchaseSplit(
+                refCode: $invoice->code,
+                date: $trxDate,
+                inventoryAmount: $grand,
+                cashPaid: 0.0, // tidak kredit kas di voucher invoice
+                payableRemain: $grand, // seluruh nilai ke Hutang
+                cashAccountNote: null,
+                memo: $invoice->note
+            );
+
+            // === 4) Voucher 2: JURNAL PEMBAYARAN (jika SUDAH ada payments)
+            if ($invoice->payments && $invoice->payments->count() > 0) {
+                foreach ($invoice->payments as $p) {
+                    if ((float) $p->amount <= 0) {
+                        continue;
+                    }
+
+                    $this->journal->postPaymentPurchase(
+                        refCode: $invoice->code . '/PAY-' . $p->id,
+                        date: Carbon::parse($p->date)->toDateString(),
+                        amount: (float) $p->amount,
+                        method: (string) $p->method,
+                        memo: $p->note
+                    );
+                }
+            }
+
+            // === 5) Update header: status, paid_amount, payment_status
+            $invoice->forceFill([
+                'grand_total' => $grand,
+                'status' => 'posted',
+            ])->save();
+
+            // Recalc (hitung paid_amount & payment_status dari tabel payments)
+            $this->pps->recalc($invoice->fresh('payments'));
+        });
+    }
+
 }
 
 /** Helper kecil untuk cek schema tanpa import facade */

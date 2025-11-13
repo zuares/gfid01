@@ -3,6 +3,8 @@
 use App\Http\Controllers\Accounting\JournalController;
 use App\Http\Controllers\Inventory\MutationController;
 use App\Http\Controllers\Inventory\StockController;
+use App\Http\Controllers\Master\WarehouseController;
+use App\Http\Controllers\Production\ExternalTransferController;
 use App\Http\Controllers\Purchasing\PurchaseController;
 use App\Http\Controllers\Purchasing\PurchasePaymentController;
 
@@ -19,13 +21,20 @@ Route::prefix('accounting')->name('accounting.')->group(function () {
     // Buku Besar (ledger)
     Route::get('/ledger', [JournalController::class, 'ledger'])->name('ledger');
 });
-
 // routes/web.php
+
 Route::prefix('purchasing/invoices')->name('purchasing.invoices.')->group(function () {
     Route::get('/', [PurchaseController::class, 'index'])->name('index');
     Route::get('/create', [PurchaseController::class, 'create'])->name('create');
     Route::post('/', [PurchaseController::class, 'store'])->name('store');
     Route::get('/{invoice}', [PurchaseController::class, 'show'])->name('show');
+
+    // ✏️ Edit & update detail baris invoice
+    Route::get('/{invoice}/edit-lines', [PurchaseController::class, 'editLines'])
+        ->name('lines.edit');
+
+    Route::put('/{invoice}/lines', [PurchaseController::class, 'updateLines'])
+        ->name('lines.update');
 
     // AJAX
     Route::get('/ajax/last-price', [PurchaseController::class, 'lastPrice'])->name('ajax.last_price');
@@ -53,3 +62,29 @@ Route::prefix('purchasing')->name('purchasing.')->group(function () {
     Route::post('/invoices/{invoice}/post', [PurchaseController::class, 'post'])
         ->name('invoices.post');
 });
+
+// routes/web.php (potong yang penting)
+
+Route::prefix('production/external')->name('production.external.')->group(function () {
+    Route::get('/', [ExternalTransferController::class, 'index'])->name('index');
+    Route::get('/create', [ExternalTransferController::class, 'create'])->name('create');
+    Route::post('/', [ExternalTransferController::class, 'store'])->name('store');
+
+    Route::post('/{id}/send', [ExternalTransferController::class, 'send'])->name('send');
+
+    Route::get('/{id}/receive', [ExternalTransferController::class, 'receiveForm'])->name('receive.form');
+    Route::post('/{id}/receive', [ExternalTransferController::class, 'receiveStore'])->name('receive.store');
+
+    Route::post('/{id}/post', [ExternalTransferController::class, 'post'])->name('post');
+});
+
+Route::prefix('master/warehouses')
+    ->name('master.warehouses.')
+    ->group(function () {
+        Route::get('/', [WarehouseController::class, 'index'])->name('index');
+        Route::get('/create', [WarehouseController::class, 'create'])->name('create');
+        Route::post('/', [WarehouseController::class, 'store'])->name('store');
+        Route::get('/{warehouse}/edit', [WarehouseController::class, 'edit'])->name('edit');
+        Route::put('/{warehouse}', [WarehouseController::class, 'update'])->name('update');
+        Route::delete('/{warehouse}', [WarehouseController::class, 'destroy'])->name('destroy');
+    });

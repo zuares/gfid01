@@ -16,6 +16,10 @@ class WarehouseItemSeeder extends Seeder
             'name' => 'Gudang Rumah', 'created_at' => now(), 'updated_at' => now(),
         ]);
 
+        DB::table('warehouses')->updateOrInsert(['code' => 'MAKLOON'], [
+            'name' => 'Gudang Rumah', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
         DB::table('items')->updateOrInsert(['code' => 'FLC280BLK'], [
             'name' => 'Fleece 280 Black', 'uom' => 'kg', 'type' => 'material',
             'created_at' => now(), 'updated_at' => now(),
