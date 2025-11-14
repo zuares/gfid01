@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class JournalLine extends Model
 {
+
     protected $fillable = ['journal_entry_id', 'account_id', 'debit', 'credit', 'note'];
 
     public function account()
@@ -16,3 +17,28 @@ class JournalLine extends Model
     {return $this->belongsTo(\App\Models\JournalEntry::class);}
 
 }
+
+// namespace App\Models;
+
+// use Illuminate\Database\Eloquent\Model;
+
+// class JournalLine extends Model
+// {
+//     protected $fillable = [
+//         'journal_id',
+//         'account_code',
+//         'debit',
+//         'credit',
+//         'description',
+//     ];
+
+//     protected $casts = [
+//         'debit' => 'float',
+//         'credit' => 'float',
+//     ];
+
+//     public function journal()
+//     {
+//         return $this->belongsTo(Journal::class);
+//     }
+// }

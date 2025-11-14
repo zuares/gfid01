@@ -65,7 +65,7 @@ class InventoryService
                 'unit' => $unit,
                 'ref_code' => $refCode,
                 'note' => $note,
-                'date' => now(), // kolom DATE (bukan datetime)
+                'date' => $date, // ← pakai $date (tipe DATE)
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -148,7 +148,7 @@ class InventoryService
             unit: $unit,
             refCode: $refCode,
             note: $note ? $note . ' (OUT)' : 'Transfer OUT',
-            date: now(),
+            date: $date,
         );
 
         // 🔺 MASUK ke gudang tujuan
@@ -161,7 +161,7 @@ class InventoryService
             unit: $unit,
             refCode: $refCode,
             note: $note ? $note . ' (IN)' : 'Transfer IN',
-            date: now(),
+            date: $date,
         );
     }
 }

@@ -17,7 +17,7 @@ class AccountSeeder extends Seeder
             ['code' => '1202', 'name' => 'Persediaan Barang Jadi', 'type' => 'asset', 'normal_balance' => 'D'],
             ['code' => '1301', 'name' => 'Piutang Usaha', 'type' => 'asset', 'normal_balance' => 'D'],
             ['code' => '2101', 'name' => 'Hutang Dagang', 'type' => 'liability', 'normal_balance' => 'C'],
-            ['code' => '2102', 'name' => 'Hutang Gaji', 'type' => 'liability', 'normal_balance' => 'C'],
+            ['code' => '2105', 'name' => 'Hutang Gaji', 'type' => 'liability', 'normal_balance' => 'C'],
             ['code' => '3101', 'name' => 'Modal Pemilik', 'type' => 'equity', 'normal_balance' => 'C'],
             ['code' => '3201', 'name' => 'Prive Pemilik', 'type' => 'equity', 'normal_balance' => 'D'],
             ['code' => '4101', 'name' => 'Penjualan', 'type' => 'revenue', 'normal_balance' => 'C'],

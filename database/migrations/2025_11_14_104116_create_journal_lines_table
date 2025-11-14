@@ -1,0 +1,31 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('journal_lines', function (Blueprint $t) {
+            $t->id();
+
+            $t->foreignId('journal_id')
+                ->constrained('journals')
+                ->cascadeOnDelete();
+
+            $t->string('account_code'); // e.g. 5101 / 1101 / 2101
+            $t->decimal('debit', 14, 2)->default(0);
+            $t->decimal('credit', 14, 2)->default(0);
+            $t->string('description')->nullable();
+
+            $t->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('journal_lines');
+    }
+};

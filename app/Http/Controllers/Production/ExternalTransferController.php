@@ -1,247 +1,467 @@
 <?php
-
-// app/Http/Controllers/Production/ExternalTransferController.php
 namespace App\Http\Controllers\Production;
 
 use App\Http\Controllers\Controller;
+use App\Models\Employee;
 use App\Models\ExternalTransfer;
+use App\Models\ExternalTransferLine;
+use App\Models\Lot;
+use App\Models\Warehouse;
 use App\Services\ExternalTransferService;
+use App\Services\InventoryService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class ExternalTransferController extends Controller
 {
-    public function __construct(protected ExternalTransferService $svc)
-    {}
-
-    public function index()
+    public function __construct(
+        protected ExternalTransferService $svc, InventoryService $inv
+    ) {}
+    /**
+     * List semua dokumen external transfer.
+     * Bisa difilter berdasarkan proses (cutting/sewing/finishing) dan status.
+     */
+    public function index(Request $request)
     {
-        $rows = ExternalTransfer::withCount('lines')
-            ->orderByDesc('id')
-            ->paginate(30);
+        $process = $request->get('process'); // optional
+        $status = $request->get('status'); // optional
 
-        return view('production.external.index', compact('rows'));
+        $rows = ExternalTransfer::withCount('lines')
+            ->when($process, fn($q) => $q->where('process', $process))
+            ->when($status, fn($q) => $q->where('status', $status))
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->paginate(30)
+            ->appends($request->only('process', 'status'));
+
+        return view('production.external_transfers.index', compact('rows', 'process', 'status'));
     }
 
+    /**
+     * Form buat dokumen external transfer baru.
+     * Contoh: kirim kain (LOT) ke vendor cutting.
+     */
     public function create(Request $request)
     {
-        // Semua gudang
-        $warehouses = DB::table('warehouses')
-            ->select('id', 'code', 'name')
-            ->orderBy('code')
-            ->get();
 
-        // Tentukan gudang asal yang dipakai:
-        // 1. dari query string ?from_warehouse_id=...
-        // 2. kalau kosong → coba cari KONTRAKAN
-        // 3. kalau masih kosong → pakai gudang pertama
-        $fromWarehouseId = $request->integer('from_warehouse_id');
+        // ====== 1) Ambil semua gudang ======
+        $warehouses = Warehouse::orderBy('code')->get();
 
-        if (!$fromWarehouseId) {
-            $kontrakan = $warehouses->firstWhere('code', 'KONTRAKAN');
-            $fromWarehouseId = $kontrakan->id ?? ($warehouses->first()->id ?? null);
+        // Default gudang "KONTRAKAN"
+        $defaultFrom = $warehouses->firstWhere('code', 'KONTRAKAN');
+
+        // from_warehouse_id prioritas:
+        //   - old() dari validasi
+        //   - query string ?from_warehouse_id=...
+        //   - default KONTRAKAN
+        $fromWarehouseId = old(
+            'from_warehouse_id',
+            $request->get('from_warehouse_id', $defaultFrom->id ?? null)
+        );
+
+        // ====== 2) Ambil data karyawan (operator) ======
+        $employees = Employee::orderBy('code')
+            ->get(['id', 'code', 'name', 'role']);
+
+        // Nilai proses & operator dari old / query
+        $process = old('process', $request->get('process', 'cutting'));
+        $operatorCode = old('operator_code', $request->get('operator_code'));
+
+        // Mapping 3 huruf proses
+        $procMap = [
+            'cutting' => 'CUT',
+            'sewing' => 'SEW',
+            'finishing' => 'FIN',
+            'other' => 'OTH',
+        ];
+        $proc3 = $procMap[$process] ?? strtoupper(substr($process, 0, 3));
+
+        // Ambil 3 huruf pertama dari kode operator
+        $emp3 = $operatorCode
+        ? strtoupper(substr(preg_replace('/[^A-Z0-9]/i', '', $operatorCode), 0, 3))
+        : null;
+
+        // Bentuk kode otomatis gudang tujuan: EXT-CUT-MRF
+        $autoToWarehouseCode = $emp3 ? "EXT-{$proc3}-{$emp3}" : null;
+
+        // Cari gudang dengan code = autoToWarehouseCode
+        $autoToWarehouseId = null;
+        if ($autoToWarehouseCode) {
+            $autoToWarehouseId = optional(
+                $warehouses->firstWhere('code', $autoToWarehouseCode)
+            )->id;
         }
 
-        // LOT aktif per gudang asal
-        if (Schema::hasTable('inventory_stocks')) {
-            // Versi pakai inventory_stocks (lebih akurat per gudang)
-            $lots = DB::table('inventory_stocks')
-                ->join('lots', 'lots.id', '=', 'inventory_stocks.lot_id')
-                ->join('items', 'items.id', '=', 'lots.item_id')
-                ->select(
-                    'lots.id',
-                    'lots.code as lot_code',
-                    'items.id as item_id',
-                    'items.code as item_code',
-                    'items.name as item_name',
-                    'inventory_stocks.qty as initial_qty',
-                    'lots.unit as uom'
-                )
-                ->where('inventory_stocks.warehouse_id', $fromWarehouseId)
-                ->where('inventory_stocks.qty', '>', 0)
-                ->orderByDesc('lots.updated_at')
-                ->limit(300)
-                ->get();
-        } else {
-            // Fallback kalau belum pakai inventory_stocks
-            $lots = DB::table('lots')
-                ->join('items', 'items.id', '=', 'lots.item_id')
-                ->select(
-                    'lots.id',
-                    'lots.code as lot_code',
-                    'items.id as item_id',
-                    'items.code as item_code',
-                    'items.name as item_name',
-                    'lots.initial_qty',
-                    'lots.unit as uom'
-                )
-                ->where('lots.initial_qty', '>', 0)
-                ->orderByDesc('lots.updated_at')
-                ->limit(300)
-                ->get();
-        }
-
-        // Operator (boleh filter role cutting kalau mau)
-        $employees = collect();
-        if (Schema::hasTable('employees')) {
-            $employees = DB::table('employees')
-                ->select('code', 'name', 'role', 'active')
-                ->where('active', 1)
-                ->orderBy('code')
-                ->get();
-        }
-
-        return view('production.external.create', [
-            'lots' => $lots,
+        // ====== 3) Ambil LOT berdasarkan gudang asal (inventory_stocks) ======
+        $lots = Lot::query()
+            ->join('items', 'items.id', '=', 'lots.item_id')
+            ->join('inventory_stocks as s', 's.lot_id', '=', 'lots.id')
+            ->when($fromWarehouseId, function ($q) use ($fromWarehouseId) {
+                $q->where('s.warehouse_id', $fromWarehouseId);
+            })
+            ->orderByDesc('lots.updated_at')
+            ->limit(500)
+            ->get([
+                'lots.id',
+                'lots.code as lot_code',
+                'items.id as item_id',
+                'items.code as item_code',
+                'items.name as item_name',
+                'lots.unit as uom',
+                's.qty as stock_remain',
+                's.warehouse_id',
+            ]);
+        return view('production.external_transfers.create', [
             'warehouses' => $warehouses,
+            'lots' => $lots,
             'employees' => $employees,
-            'fromWarehouseId' => $fromWarehouseId,
+            'defaultProcess' => $process,
+            'defaultFromWarehouseId' => $fromWarehouseId,
+            'autoToWarehouseId' => $autoToWarehouseId,
+            'autoToWarehouseCode' => $autoToWarehouseCode,
+        ]);
+    }
+    /**
+     * Simpan dokumen external transfer baru (status = draft).
+     */
+    public function store(Request $request)
+    {
+        /**
+         * ========== AUTOCREATE to_warehouse (CUT-EXT-OPERATOR) ==========
+         * Contoh: operator_code = MRF  →  warehouse code = CUT-EXT-MRF
+         * Dijalankan sebelum validate.
+         */
+        if ($request->process === 'cutting' && $request->operator_code) {
+
+            // bentukan kode gudang tujuan
+            $whCode = 'CUT-EXT-' . strtoupper($request->operator_code);
+
+            // data default gudang
+            $warehouseData = [
+                'code' => $whCode,
+                'name' => 'Cutting External ' . strtoupper($request->operator_code),
+            ];
+
+            // kalau di tabel warehouses ada kolom "type", isi 'external'
+            if (Schema::hasColumn('warehouses', 'type')) {
+                $warehouseData['type'] = 'external';
+            }
+
+            // kalau ada kolom "is_active", set true
+            if (Schema::hasColumn('warehouses', 'is_active')) {
+                $warehouseData['is_active'] = true;
+            }
+
+            // cari atau buat gudang
+            $toWarehouse = Warehouse::firstOrCreate(
+                ['code' => $whCode],
+                $warehouseData
+            );
+
+            // paksa request pakai gudang ini sebagai tujuan
+            $request->merge([
+                'to_warehouse_id' => $toWarehouse->id,
+            ]);
+        }
+
+        // ===== VALIDASI SETELAH MERGE =====
+        $request->validate([
+            'date' => ['required', 'date'],
+            'from_warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'to_warehouse_id' => ['required', 'integer', 'exists:warehouses,id', 'different:from_warehouse_id'],
+            'process' => ['required', 'in:cutting,sewing,finishing,other'],
+            'operator_code' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string'],
+
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.lot_id' => ['required', 'integer', 'exists:lots,id'],
+            'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
+            'lines.*.qty' => ['required', 'numeric', 'gt:0'],
+            'lines.*.uom' => ['required', 'string', 'max:10'],
+            'lines.*.notes' => ['nullable', 'string'],
+        ], [
+            'lines.required' => 'Minimal satu baris LOT harus diisi.',
+        ]);
+
+        DB::transaction(function () use ($request) {
+            $date = Carbon::parse($request->date);
+
+            // Generate kode dokumen
+            $code = $this->generateCode($request->process, $date);
+
+            /** @var ExternalTransfer $header */
+            $header = ExternalTransfer::create([
+                'code' => $code,
+                'date' => $date->toDateString(),
+                'from_warehouse_id' => $request->from_warehouse_id,
+                'to_warehouse_id' => $request->to_warehouse_id,
+                'operator_code' => $request->operator_code,
+                'process' => $request->process,
+                'status' => 'draft',
+                'notes' => $request->notes,
+            ]);
+
+            foreach ($request->lines as $line) {
+                ExternalTransferLine::create([
+                    'external_transfer_id' => $header->id,
+                    'lot_id' => $line['lot_id'],
+                    'item_id' => $line['item_id'],
+                    'qty' => $line['qty'],
+                    'uom' => $line['uom'],
+                    'notes' => $line['notes'] ?? null,
+                ]);
+            }
+        });
+
+        return redirect()
+            ->route('external-transfers.index')
+            ->with('ok', 'Dokumen external transfer berhasil dibuat (status: draft).');
+    }
+
+    /**
+     * Tampilkan detail satu dokumen external transfer.
+     */
+    public function show(ExternalTransfer $externalTransfer)
+    {
+        $externalTransfer->load(['fromWarehouse', 'toWarehouse', 'lines.lot', 'lines.item']);
+
+        return view('production.external_transfers.show', [
+            'row' => $externalTransfer,
         ]);
     }
 
     /**
-     * Simpan External Transfer (Makloon)
-     * - Format gudang eksternal: PROSES-EXT-EMPCODE (CUT-EXT-MRF / SEW-EXT-MRF)
-     * - Jika gudang belum ada → auto create
-     * - Status awal: draft (nanti kirim stok di action send())
+     * Form edit dokumen (hanya jika masih draft).
      */
-    public function store(Request $request)
+    public function edit(ExternalTransfer $externalTransfer)
     {
-        // dd($request->input());
-        $validated = $request->validate([
-            'process' => 'required|in:cutting,sewing',
-            'operator_code' => 'required|string',
-            'date' => 'nullable|date', // input tetap boleh, tapi kita override
-            'from_warehouse_id' => 'required|integer',
-            'to_warehouse_code' => 'required|string', // diisi otomatis dari view
-            'note' => 'nullable|string',
-            'material_value_est' => 'nullable|numeric',
+        if ($externalTransfer->status !== 'draft') {
+            return redirect()
+                ->route('external-transfers.show', $externalTransfer)
+                ->with('error', 'Dokumen yang sudah dikirim tidak dapat diedit.');
+        }
+
+        $warehouses = Warehouse::orderBy('code')->get();
+
+        $lots = DB::table('lots')
+            ->join('items', 'items.id', '=', 'lots.item_id')
+            ->select(
+                'lots.id',
+                'lots.code as lot_code',
+                'items.id as item_id',
+                'items.code as item_code',
+                'items.name as item_name',
+                'lots.initial_qty',
+                DB::raw('COALESCE(lots.stock_remain, lots.initial_qty) as stock_remain'),
+                'lots.unit as uom'
+            )
+            ->orderByDesc('lots.updated_at')
+            ->limit(300)
+            ->get();
+
+        $externalTransfer->load('lines.lot', 'lines.item');
+
+        return view('production.external.edit', [
+            'row' => $externalTransfer,
+            'warehouses' => $warehouses,
+            'lots' => $lots,
+        ]);
+    }
+
+    /**
+     * Update dokumen external transfer (draft).
+     */
+    public function update(Request $request, ExternalTransfer $externalTransfer)
+    {
+        if ($externalTransfer->status !== 'draft') {
+            return redirect()
+                ->route('external-transfers.show', $externalTransfer)
+                ->with('error', 'Dokumen yang sudah dikirim tidak dapat diubah.');
+        }
+
+        $request->validate([
+            'date' => ['required', 'date'],
+            'from_warehouse_id' => ['required', 'integer', 'exists:warehouses,id'],
+            'to_warehouse_id' => ['required', 'integer', 'exists:warehouses,id', 'different:from_warehouse_id'],
+            'process' => ['required', 'in:cutting,sewing,finishing,other'],
+            'operator_code' => ['nullable', 'string', 'max:100'],
+            'notes' => ['nullable', 'string'],
+
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.lot_id' => ['required', 'integer', 'exists:lots,id'],
+            'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
+            'lines.*.qty' => ['required|numeric|min:0.01'],
+            'lines.*.uom' => ['required', 'string', 'max:10'],
+            'lines.*.notes' => ['nullable', 'string'],
         ]);
 
-        DB::transaction(function () use ($validated, $request) {
-            $process = $validated['process']; // cutting / sewing
-            $operatorCode = $validated['operator_code']; // MRF, BBI, dll
-            $now = now(); // waktu submit
-            $fromWhId = (int) $validated['from_warehouse_id'];
-            $toWhCode = $validated['to_warehouse_code']; // CUT-EXT-MRF / SEW-EXT-MRF
-            $note = $validated['note'] ?? null;
-            $estValue = $validated['material_value_est'] ?? 0;
+        DB::transaction(function () use ($request, $externalTransfer) {
+            $date = Carbon::parse($request->date);
 
-            // 1️⃣ Pastikan gudang tujuan ada (kalau belum, buat)
-            $warehouse = DB::table('warehouses')
-                ->where('code', $toWhCode)
-                ->first();
-
-            if (!$warehouse) {
-                $processName = $process === 'sewing' ? 'Makloon Sewing' : 'Makloon Cutting';
-
-                $toWhId = DB::table('warehouses')->insertGetId([
-                    'code' => $toWhCode, // contoh: CUT-EXT-MRF
-                    'name' => "{$processName} {$operatorCode}",
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
-            } else {
-                $toWhId = $warehouse->id;
-            }
-
-            // 2️⃣ Generate kode dokumen external transfer
-            //    - proses cutting → CUT-EXT-YYMMDD-MRF-001
-            //    - proses sewing  → SEW-EXT-YYMMDD-MRF-001
-            $prefix = $process === 'sewing' ? 'SEW-EXT' : 'CUT-EXT';
-
-            $countToday = DB::table('external_transfers')
-                ->whereDate('date', $now->toDateString())
-                ->where('operator_code', $operatorCode)
-                ->where('code', 'like', $prefix . '%')
-                ->count();
-
-            $sequence = str_pad($countToday + 1, 3, '0', STR_PAD_LEFT);
-            $code = $prefix . '-' . $now->format('ymd') . '-' . $operatorCode . '-' . $sequence;
-
-            // 3️⃣ Insert header external_transfer (pakai Eloquent biar enak)
-            /** @var \App\Models\ExternalTransfer $ext */
-            $ext = ExternalTransfer::create([
-                'code' => $code,
-                'process' => $process,
-                'operator_code' => $operatorCode,
-                'from_warehouse_id' => $fromWhId,
-                'to_warehouse_id' => $toWhId,
-                'date' => $now->toDateString(), // pakai waktu submit
-                'status' => 'draft', // awalnya DRAFT
-                'material_value_est' => $estValue,
-                'note' => $note,
+            $externalTransfer->update([
+                'date' => $date->toDateString(),
+                'from_warehouse_id' => $request->from_warehouse_id,
+                'to_warehouse_id' => $request->to_warehouse_id,
+                'operator_code' => $request->operator_code,
+                'process' => $request->process,
+                'notes' => $request->notes,
             ]);
 
-            // 4️⃣ Insert detail LOT yang dipilih
-            $lines = $request->input('lines', []);
+            // hapus semua line lama, insert ulang (simple)
+            $externalTransfer->lines()->delete();
 
-            foreach ($lines as $line) {
-                $qty = isset($line['qty']) ? (float) $line['qty'] : 0;
-                if ($qty <= 0) {
-                    continue;
-                }
-
-                $ext->lines()->create([
+            foreach ($request->lines as $line) {
+                ExternalTransferLine::create([
+                    'external_transfer_id' => $externalTransfer->id,
                     'lot_id' => $line['lot_id'],
                     'item_id' => $line['item_id'],
-                    'qty' => $qty,
-                    'unit' => $line['unit'],
-                    'note' => $line['note'] ?? null,
+                    'qty' => $line['qty'],
+                    'uom' => $line['uom'],
+                    'notes' => $line['notes'] ?? null,
                 ]);
             }
-
-            // ❌ Tidak mutasi stok di sini.
-            // ✅ Mutasi stok dilakukan saat action "send()" di ExternalTransferService.
         });
 
         return redirect()
-            ->route('production.external.index')
-            ->with('success', 'External transfer makloon berhasil dibuat (DRAFT).');
+            ->route('external-transfers.show', $externalTransfer)
+            ->with('ok', 'Dokumen external transfer berhasil diperbarui.');
     }
 
-    public function send($id)
+    /**
+     * Ubah status dokumen dari draft → sent.
+     * Biasanya dipakai saat barang benar-benar keluar dari gudang.
+     */
+    public function send(int $id, InventoryService $inv)
     {
+        // Ambil dokumen + lines secara manual
         $t = ExternalTransfer::with('lines')->findOrFail($id);
-        $this->svc->send($t);
-        return back()->with('ok', "Transfer {$t->code} dikirim (status SENT).");
+
+        if ($t->status !== 'draft') {
+            return back()->with('err', 'Hanya dokumen draft yang bisa dikirim.');
+        }
+        if ($t->lines->isEmpty()) {
+            return back()->with('err', "Dokumen {$t->code} tidak punya detail LOT.");
+        }
+
+        try {
+            $date = $t->date?->toDateString() ?? now()->toDateString();
+            $ref = $t->code;
+            $note = "ExternalTransfer {$t->code}";
+
+            DB::transaction(function () use ($t, $inv, $date, $ref, $note) {
+                foreach ($t->lines as $ln) {
+                    $inv->transfer(
+                        fromWarehouseId: $t->from_warehouse_id,
+                        toWarehouseId: $t->to_warehouse_id,
+                        lotId: $ln->lot_id,
+                        qty: (float) $ln->qty,
+                        unit: $ln->uom,
+                        refCode: $ref,
+                        note: $note,
+                        date: $date,
+                    );
+                }
+
+                $t->update([
+                    'status' => 'sent',
+                ]);
+            });
+        } catch (\Throwable $e) {
+            return back()->with('err', 'Gagal mengirim dokumen: ' . $e->getMessage());
+        }
+
+        return back()->with('ok', "Dokumen {$t->code} berhasil dikirim dan stok berpindah gudang.");
     }
 
-    public function receiveForm($id)
+    /**
+     * Konfirmasi bahwa barang sudah diterima di tujuan (sent → received).
+     */
+    public function receive(ExternalTransfer $externalTransfer)
     {
-        $t = ExternalTransfer::with('lines')->findOrFail($id);
-        return view('production.external.receive', compact('t'));
-    }
+        if ($externalTransfer->status !== 'sent') {
+            return back()->with('err', 'Hanya dokumen dengan status sent yang bisa diterima.');
+        }
 
-    public function receiveStore(Request $r, $id)
-    {
-        $t = ExternalTransfer::with('lines')->findOrFail($id);
-
-        $r->validate([
-            'date' => 'required|date',
-            'lines' => 'required|array|min:1',
-            'lines.*.transfer_line_id' => 'required|integer',
-            'lines.*.received_qty' => 'nullable|numeric|min:0',
-            'lines.*.defect_qty' => 'nullable|numeric|min:0',
+        $externalTransfer->update([
+            'status' => 'received',
         ]);
 
-        $this->svc->receive($t, [
-            'date' => $r->date,
-            'note' => $r->note,
-            'lines' => $r->lines,
+        // Di sini nanti bisa sambungkan ke InventoryService / mutasi stok
+
+        return back()->with('ok', "Dokumen {$externalTransfer->code} telah dikonfirmasi diterima (status: received).");
+    }
+
+    /**
+     * Tandai dokumen sebagai selesai / done.
+     * Misalnya setelah seluruh cycle proses bahan dari dokumen ini selesai.
+     */
+    public function done(ExternalTransfer $externalTransfer)
+    {
+        if (!in_array($externalTransfer->status, ['received', 'sent'])) {
+            return back()->with('err', 'Hanya dokumen sent/received yang bisa ditandai selesai.');
+        }
+
+        $externalTransfer->update([
+            'status' => 'done',
         ]);
+
+        return back()->with('ok', "Dokumen {$externalTransfer->code} telah ditandai selesai (status: done).");
+    }
+
+    /**
+     * Hapus / batalkan dokumen.
+     * Untuk keamanan, batasi hanya ketika status = draft.
+     */
+    public function destroy(ExternalTransfer $externalTransfer)
+    {
+        if ($externalTransfer->status !== 'draft') {
+            return back()->with('err', 'Hanya dokumen draft yang dapat dihapus.');
+        }
+
+        $code = $externalTransfer->code;
+
+        DB::transaction(function () use ($externalTransfer) {
+            $externalTransfer->lines()->delete();
+            $externalTransfer->delete();
+        });
 
         return redirect()
-            ->route('production.external.index')
-            ->with('ok', "Penerimaan external untuk {$t->code} diposting.");
+            ->route('external-transfers.index')
+            ->with('ok', "Dokumen {$code} berhasil dihapus.");
     }
 
-    public function post($id)
-    {
-        $t = ExternalTransfer::findOrFail($id);
-        $this->svc->post($t, $memo = request('memo'));
+    /*
+    |--------------------------------------------------------------------------
+    | HELPER: Generate Kode Dokumen
+    |--------------------------------------------------------------------------
+     */
 
-        return back()->with('ok', "Transfer {$t->code} POSTED (jurnal).");
+    /**
+     * Generate kode dokumen:
+     * - prefix tergantung process, contoh:
+     *   - cutting  → EXT-CUT-YYMMDD-###
+     *   - sewing   → EXT-SEW-YYMMDD-###
+     *   - default  → EXT-OTH-YYMMDD-###
+     */
+    protected function generateCode(string $process, Carbon $date): string
+    {
+        $prefix = match ($process) {
+            'cutting' => 'EXT-CUT',
+            'sewing' => 'EXT-SEW',
+            'finishing' => 'EXT-FIN',
+            default => 'EXT-OTH',
+        };
+
+        $ymd = $date->format('ymd');
+
+        $countToday = ExternalTransfer::where('process', $process)
+            ->whereDate('date', $date->toDateString())
+            ->count();
+
+        $seq = str_pad($countToday + 1, 3, '0', STR_PAD_LEFT);
+
+        return "{$prefix}-{$ymd}-{$seq}";
     }
 }

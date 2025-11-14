@@ -12,30 +12,38 @@ class ExternalTransferService
         protected InventoryService $inventory,
     ) {}
 
-    public function send(ExternalTransfer $t): void
+    public function send(ExternalTransfer $t, ?string $date = null): void
     {
         if ($t->status !== 'draft') {
-            return;
+            throw new \RuntimeException("Hanya dokumen draft yang bisa dikirim.");
         }
 
-        DB::transaction(function () use ($t) {
-            foreach ($t->lines as $line) {
-                if ($line->qty <= 0) {
-                    continue;
-                }
+        $t->load('lines');
+
+        if ($t->lines->isEmpty()) {
+            throw new \RuntimeException("Dokumen {$t->code} tidak punya detail LOT.");
+        }
+
+        $date = $date ?: $t->date?->toDateString() ?: now()->toDateString();
+        $refNote = "ExternalTransfer {$t->code}";
+
+        DB::transaction(function () use ($t, $date, $refNote) {
+            foreach ($t->lines as $ln) {
                 $this->inventory->transfer(
                     fromWarehouseId: $t->from_warehouse_id,
                     toWarehouseId: $t->to_warehouse_id,
-                    lotId: $line->lot_id,
-                    qty: (float) $line->qty,
-                    unit: $line->unit,
+                    lotId: $ln->lot_id,
+                    qty: (float) $ln->qty,
+                    unit: $ln->uom,
                     refCode: $t->code,
-                    note: "External send {$t->process} to {$t->operator_code}"
+                    note: $refNote,
+                    date: $date,
                 );
             }
 
-            $t->status = 'sent';
-            $t->save();
+            $t->update([
+                'status' => 'sent',
+            ]);
         });
     }
 

@@ -1,10 +1,10 @@
 @extends('layouts.app')
-@section('title', 'Pembelian • Invoice Baru')
+@section('title', 'Demo • Input Baru')
 
 @push('head')
     <style>
         .page-wrap {
-            max-width: 1080px;
+            max-width: 960px;
             margin-inline: auto
         }
 
@@ -17,17 +17,6 @@
         .mono {
             font-variant-numeric: tabular-nums;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono"
-        }
-
-        .help {
-            color: var(--muted);
-            font-size: .85rem
-        }
-
-        .required::after {
-            content: '*';
-            color: #ef4444;
-            margin-left: 3px
         }
 
         thead th {
@@ -63,16 +52,16 @@
             border: 1px solid var(--line);
             border-radius: 12px;
             margin-top: 4px;
-            max-height: 300px;
+            max-height: 260px;
             overflow: auto;
             box-shadow: 0 10px 34px rgba(0, 0, 0, .14)
         }
 
         .ac-item {
-            padding: .55rem .7rem;
+            padding: .5rem .7rem;
             display: grid;
-            grid-template-columns: 112px 1fr auto;
-            gap: .55rem;
+            grid-template-columns: 120px 1fr auto;
+            gap: .4rem;
             cursor: pointer;
             align-items: center
         }
@@ -101,7 +90,6 @@
             vertical-align: middle
         }
 
-        /* Unit chip */
         .unit-chip {
             display: inline-flex;
             align-items: center;
@@ -113,12 +101,12 @@
             background: color-mix(in srgb, var(--bs-primary) 6%, transparent)
         }
 
-        /* Footer total */
         tfoot .totals {
             display: flex;
             justify-content: flex-end;
             gap: 1rem;
-            align-items: center
+            align-items: center;
+            flex-wrap: wrap
         }
 
         tfoot .totals .label {
@@ -130,7 +118,6 @@
             text-align: right
         }
 
-        /* Minimal nav hint */
         .nav-hint {
             display: flex;
             gap: .6rem;
@@ -159,80 +146,33 @@
 @section('content')
     <div class="container py-3 page-wrap">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">Pembelian • Invoice Baru</h5>
-            <a href="{{ route('purchasing.invoices.index') }}" class="btn btn-outline-secondary btn-sm">
+            <h5 class="mb-0">Demo • Input Baru</h5>
+            <a href="{{ url()->previous() }}" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-arrow-left"></i> Kembali
             </a>
         </div>
 
-        @if ($errors->any())
-            <div class="alert alert-danger">
-                <strong>Periksa input:</strong>
-                <ul class="mb-0">
-                    @foreach ($errors->all() as $e)
-                        <li>{{ $e }}</li>
-                    @endforeach
-                </ul>
-            </div>
-        @endif
-
-        <form action="{{ route('purchasing.invoices.store') }}" method="POST" id="form-purchase" autocomplete="off">
+        <form action="" method="POST" id="form-simple" autocomplete="off">
             @csrf
-            <input type="hidden" name="_idem"
-                value="{{ old('_idem', $defaults['_idem'] ?? 'IDEM-' . now()->format('YmdHis')) }}">
 
-            {{-- HEADER --}}
+            {{-- HEADER SEDERHANA --}}
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="row g-3">
-                        <div class="col-12 col-md-3">
-                            <label class="form-label">Jenis Item</label>
-                            @php $types=[''=>'— Semua —','material'=>'Bahan Baku','pendukung'=>'Bahan Pendukung','finished'=>'Barang Jadi']; @endphp
-                            <select id="filter_type" class="form-select">
-                                @foreach ($types as $val => $label)
-                                    <option value="{{ $val }}" @selected(old('filter_type', $filterType) === $val)>{{ $label }}
-                                    </option>
-                                @endforeach
-                            </select>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label">Kode Dokumen</label>
+                            <input type="text" name="code" class="form-control" value="{{ old('code') }}"
+                                placeholder="AUTO / isi manual">
                         </div>
-                        <div class="col-12 col-md-3">
-                            <label class="form-label required">Supplier</label>
-                            <select class="form-select @error('supplier_id') is-invalid @enderror" name="supplier_id"
-                                id="supplier_id" required>
-                                <option value="">— Pilih Supplier —</option>
-                                @foreach ($suppliers as $s)
-                                    <option value="{{ $s->id }}" @selected(old('supplier_id') == $s->id)>{{ $s->name }}
-                                    </option>
-                                @endforeach
-                            </select>
-                            @error('supplier_id')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label required">Gudang</label>
-                            <select name="warehouse_id" id="warehouse_id"
-                                class="form-select @error('warehouse_id') is-invalid @enderror" required>
-                                <option value="">— Pilih Gudang —</option>
-                                @php $warehouses = \App\Models\Warehouse::orderBy('name')->get(['id','name','code']); @endphp
-                                @foreach ($warehouses as $w)
-                                    <option value="{{ $w->id }}" @selected(old('warehouse_id', $kontrakanId) == $w->id)>{{ $w->name }}
-                                        ({{ $w->code }})
-                                    </option>
-                                @endforeach
-                            </select>
-                            @error('warehouse_id')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
-                        </div>
-                        <div class="col-6 col-md-3">
-                            <label class="form-label required">Tanggal</label>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label">Tanggal</label>
                             <input type="date" name="date" id="date"
-                                value="{{ old('date', now('Asia/Jakarta')->toDateString()) }}"
-                                class="form-control @error('date') is-invalid @enderror" required>
-                            @error('date')
-                                <div class="invalid-feedback">{{ $message }}</div>
-                            @enderror
+                                value="{{ old('date', now('Asia/Jakarta')->toDateString()) }}" class="form-control">
+                        </div>
+                        <div class="col-6 col-md-4">
+                            <label class="form-label">Catatan</label>
+                            <input type="text" name="note" class="form-control" value="{{ old('note') }}"
+                                placeholder="Opsional">
                         </div>
                     </div>
                 </div>
@@ -242,7 +182,7 @@
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <strong>Detail Pembelian</strong>
+                        <strong>Detail Baris</strong>
                         <div class="d-flex gap-2">
                             <button type="button" class="btn btn-outline-secondary btn-sm" id="add-5">+5</button>
                             <button type="button" class="btn btn-primary btn-sm" id="add-line">
@@ -255,11 +195,11 @@
                         <table class="table align-middle" id="table-lines">
                             <thead>
                                 <tr>
-                                    <th style="width:42%">Item (autocomplete • F2)</th>
+                                    <th style="width:44%">Item (autocomplete • F2)</th>
                                     <th style="width:12%">Qty</th>
-                                    <th style="width:12%">Unit</th>
+                                    <th style="width:14%">Unit</th>
                                     <th style="width:18%">Harga</th>
-                                    <th style="width:16%">Subtotal</th>
+                                    <th style="width:12%">Subtotal</th>
                                     <th style="width:6%"></th>
                                 </tr>
                             </thead>
@@ -272,8 +212,7 @@
                                             <div class="input-group" style="max-width:220px">
                                                 <span class="input-group-text">Rp</span>
                                                 <input type="text" class="form-control text-end" id="other_costs_view"
-                                                    inputmode="decimal" placeholder="0"
-                                                    value="{{ old('other_costs', 0) }}">
+                                                    inputmode="decimal" placeholder="0" value="{{ old('other_costs', 0) }}">
                                                 <input type="hidden" name="other_costs" id="other_costs"
                                                     value="{{ old('other_costs', 0) }}">
                                             </div>
@@ -298,7 +237,7 @@
 
             {{-- ACTIONS --}}
             <div class="d-flex justify-content-end gap-2">
-                <a href="{{ route('purchasing.invoices.index') }}" class="btn btn-outline-secondary">Batal</a>
+                <a href="{{ url()->previous() }}" class="btn btn-outline-secondary">Batal</a>
                 <button type="submit" class="btn btn-success" id="btn-submit">Simpan</button>
             </div>
         </form>
@@ -308,43 +247,34 @@
 @push('scripts')
     <script>
         (() => {
-            const itemsAll = @json($itemsAll);
-            const filterSel = document.getElementById('filter_type');
-            const supplierSel = document.getElementById('supplier_id');
+            // itemsAll: {id, code, name, uom}
+            const itemsAll = @json($itemsAll ?? []);
+
             const tbody = document.querySelector('#table-lines tbody');
             const totalView = document.getElementById('grand-total');
             const ocView = document.getElementById('other_costs_view');
             const ocHidden = document.getElementById('other_costs');
             const btnAdd = document.getElementById('add-line');
             const btnAdd5 = document.getElementById('add-5');
-            const form = document.getElementById('form-purchase');
+            const form = document.getElementById('form-simple');
             const btnSubmit = document.getElementById('btn-submit');
 
-            const rupiah = (n) => (window.App?.formatRupiah ? window.App.formatRupiah(n) : (Number(n || 0))
-                .toLocaleString('id-ID'));
-            const parseNum = (v) => (window.App?.parseNumberId ? window.App.parseNumberId(v) :
-                (parseFloat(String(v ?? '').replace(/\s+/g, '').replace(/\./g, '').replace(',', '.')) || 0));
-            const sanitize = (el) => el.value = el.value.replace(/[^0-9.,]/g, '');
+            const rupiah = (n) =>
+                (window.App?.formatRupiah ? window.App.formatRupiah(n) :
+                    (Number(n || 0)).toLocaleString('id-ID'));
 
-            const getFilteredItems = () => {
-                const t = filterSel.value;
-                return t ? itemsAll.filter(i => i.type === t) : itemsAll;
+            const parseNum = (v) =>
+                (window.App?.parseNumberId ? window.App.parseNumberId(v) :
+                    (parseFloat(String(v ?? '')
+                        .replace(/\s+/g, '')
+                        .replace(/\./g, '')
+                        .replace(',', '.')) || 0));
+
+            const sanitize = (el) => {
+                el.value = el.value.replace(/[^0-9.,]/g, '');
             };
 
-            async function fetchLastPrice({
-                itemId,
-                supplierId
-            }) {
-                if (!itemId || !supplierId) return null;
-                const url = new URL(`{{ route('purchasing.invoices.ajax.last_price') }}`, window.location.origin);
-                url.searchParams.set('supplier_id', supplierId);
-                url.searchParams.set('item_id', itemId);
-                const res = await fetch(url);
-                if (!res.ok) return null;
-                const js = await res.json().catch(() => null);
-                if (js && js.ok && js.data) return js.data;
-                return null;
-            }
+            const getFilteredItems = () => itemsAll;
 
             const calcLines = () => {
                 let t = 0;
@@ -366,13 +296,12 @@
                 const idx = Date.now() + Math.floor(Math.random() * 999);
                 const tr = document.createElement('tr');
                 tr.classList.add('line-row');
-                tr.innerHTML =
-                    `
+                tr.innerHTML = `
 <td>
   <div class="ac-wrap">
     <input type="text" class="form-control ac-input" placeholder="Ketik kode/nama • F2">
-    <button type="button" class="btn btn-outline-secondary btn-sm btn-inline btn-history" title="Harga terakhir">
-      <i class="bi bi-clock-history"></i>
+    <button type="button" class="btn btn-outline-secondary btn-sm btn-inline" title="Lihat daftar (F2)">
+      <i class="bi bi-search"></i>
     </button>
     <div class="ac-menu d-none"></div>
   </div>
@@ -392,12 +321,13 @@
     <input type="text" class="form-control text-end price-view" inputmode="decimal" placeholder="0">
     <input type="hidden" name="lines[${idx}][unit_cost]" class="price-val" value="0">
   </div>
-  <div class="help small mt-1 d-none hint-last">
-    Terakhir: <span class="mono hint-price">-</span> (<span class="mono hint-date">-</span>) <span class="mono hint-code"></span>
-  </div>
 </td>
 <td class="mono subtotal">0</td>
-<td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm btn-del"><i class="bi bi-trash"></i></button></td>`;
+<td class="text-end">
+  <button type="button" class="btn btn-outline-danger btn-sm btn-del">
+    <i class="bi bi-trash"></i>
+  </button>
+</td>`;
                 tbody.appendChild(tr);
                 bindRow(tr, prefill);
                 setTimeout(() => tr.querySelector('.ac-input')?.focus(), 0);
@@ -407,8 +337,8 @@
             function bindRow(tr, prefill) {
                 const acInput = tr.querySelector('.ac-input');
                 const acMenu = tr.querySelector('.ac-menu');
+                const btnOpenList = tr.querySelector('.btn-inline');
                 const itemId = tr.querySelector('.item-id');
-                const btnHistory = tr.querySelector('.btn-history');
 
                 const unitText = tr.querySelector('.unit-text');
                 const unitHidden = tr.querySelector('.unit-hidden');
@@ -418,10 +348,6 @@
                 const priceView = tr.querySelector('.price-view');
                 const priceVal = tr.querySelector('.price-val');
                 const subtotal = tr.querySelector('.subtotal');
-                const hintWrap = tr.querySelector('.hint-last');
-                const hintPrice = tr.querySelector('.hint-price');
-                const hintDate = tr.querySelector('.hint-date');
-                const hintCode = tr.querySelector('.hint-code');
 
                 const recalc = () => {
                     const q = parseNum(qtyView.value);
@@ -452,12 +378,12 @@
                         return;
                     }
                     acMenu.innerHTML = list.slice(0, 300).map((it, i) => `
-                <div class="ac-item ${i===activeIndex?'active':''}" data-id="${it.id}">
-                    <div class="ac-code mono">${it.code}</div>
-                    <div class="ac-name">${it.name}</div>
-                    <div class="ac-uom">${it.uom||''}</div>
-                </div>
-            `).join('');
+                        <div class="ac-item ${i===activeIndex?'active':''}" data-id="${it.id}">
+                            <div class="ac-code mono">${it.code}</div>
+                            <div class="ac-name">${it.name}</div>
+                            <div class="ac-uom">${it.uom||''}</div>
+                        </div>
+                    `).join('');
                     acMenu.classList.remove('d-none');
                     if (activeIndex >= 0) {
                         const el = acMenu.querySelectorAll('.ac-item')[activeIndex];
@@ -474,8 +400,10 @@
                 function filterList(q) {
                     q = q.trim().toLowerCase();
                     const src = getFilteredItems();
-                    currentList = !q ? src : src.filter(it => it.code.toLowerCase().includes(q) || it.name.toLowerCase()
-                        .includes(q));
+                    currentList = !q ? src : src.filter(it =>
+                        it.code.toLowerCase().includes(q) ||
+                        it.name.toLowerCase().includes(q)
+                    );
                     activeIndex = currentList.length ? 0 : -1;
                     renderMenu(currentList);
                 }
@@ -492,32 +420,6 @@
                     unitText.textContent = it.uom || '—';
                     unitHidden.value = it.uom || '';
                     acMenu.classList.add('d-none');
-
-                    const supplierId = supplierSel.value;
-                    if (supplierId) {
-                        fetchLastPrice({
-                            itemId: it.id,
-                            supplierId
-                        }).then(last => {
-                            if (!last) {
-                                hintWrap.classList.add('d-none');
-                                return;
-                            }
-                            priceView.value = rupiah(last.unit_cost);
-                            priceVal.value = last.unit_cost;
-                            if (last.unit) {
-                                unitText.textContent = last.unit;
-                                unitHidden.value = last.unit;
-                            }
-                            hintPrice.textContent = rupiah(last.unit_cost);
-                            hintDate.textContent = last.date || '-';
-                            hintCode.textContent = last.inv_code ? `• ${last.inv_code}` : '';
-                            hintWrap.classList.remove('d-none');
-                            tr.classList.add('table-success');
-                            setTimeout(() => tr.classList.remove('table-success'), 420);
-                            recalc();
-                        });
-                    }
                     setTimeout(() => qtyView.focus(), 0);
                 }
 
@@ -540,7 +442,6 @@
                         return;
                     }
                     if (e.key === 'Enter' && !e.shiftKey) {
-                        // pilih item jika menu terbuka, kalau tidak → submit (biarkan default)
                         if (isOpen && activeIndex >= 0 && currentList[activeIndex]) {
                             e.preventDefault();
                             pickItem(currentList[activeIndex]);
@@ -580,36 +481,14 @@
                     if (!tr.contains(e.target)) acMenu.classList.add('d-none');
                 });
 
-                // Harga terakhir tombol
-                btnHistory.addEventListener('click', async () => {
-                    const id = Number(itemId.value || 0);
-                    const supplierId = supplierSel.value;
-                    if (!id || !supplierId) {
-                        alert('Pilih supplier & item dulu.');
-                        return;
-                    }
-                    const last = await fetchLastPrice({
-                        itemId: id,
-                        supplierId
-                    });
-                    if (last) {
-                        priceView.value = rupiah(last.unit_cost);
-                        priceVal.value = last.unit_cost;
-                        if (last.unit) {
-                            unitText.textContent = last.unit;
-                            unitHidden.value = last.unit;
-                        }
-                        hintPrice.textContent = rupiah(last.unit_cost);
-                        hintDate.textContent = last.date || '-';
-                        hintCode.textContent = last.inv_code ? `• ${last.inv_code}` : '';
-                        hintWrap.classList.remove('d-none');
-                        recalc();
-                    } else {
-                        alert('Belum ada riwayat harga.');
-                    }
+                // Tombol kecil search
+                btnOpenList.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    openFullList();
+                    acInput.focus();
                 });
 
-                // Qty & Price (tanpa Shift+Enter handler di sini—biar tidak dobel)
+                // Qty & Price
                 qtyView.addEventListener('input', () => {
                     sanitize(qtyView);
                     recalc();
@@ -657,7 +536,7 @@
             if (!tbody.querySelector('.line-row')) addLine();
 
             // ==== Global shortcuts ====
-            let addLock = false; // debouncer anti dobel
+            let addLock = false;
             let addLockTimer = null;
 
             function requestAddLine() {
@@ -669,10 +548,10 @@
                     addLock = false;
                 }, 250);
             }
+
             document.addEventListener('keydown', (e) => {
-                // Shift+Enter: tambah baris (satu kali, debounced)
+                // Shift+Enter: tambah baris
                 if (e.key === 'Enter' && e.shiftKey) {
-                    // hindari dobel ketika fokus di button
                     if (document.activeElement?.closest('button')) return;
                     e.preventDefault();
                     requestAddLine();
@@ -690,7 +569,6 @@
                         updateTotals();
                     }
                 }
-                // Enter biasa: biarkan submit (default) → tidak dicegat
             });
 
             // Biaya lain
@@ -700,12 +578,12 @@
                 updateTotals();
             });
 
-            // Submit guard
+            // Submit guard sederhana
             form.addEventListener('submit', (e) => {
                 const rows = [...document.querySelectorAll('.line-row')];
                 if (rows.length === 0) {
                     e.preventDefault();
-                    return alert('Minimal 1 baris pembelian.');
+                    return alert('Minimal 1 baris.');
                 }
                 const gt = parseNum(totalView.textContent.replace(/\./g, '').replace(',', '.'));
                 if (gt <= 0) {

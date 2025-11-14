@@ -1,0 +1,105 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class WipItem extends Model
+{
+    use HasFactory;
+
+    protected $table = 'wip_items';
+
+    protected $fillable = [
+        'production_batch_id',
+        'item_id',
+        'item_code',
+        'warehouse_id',
+        'source_lot_id',
+        'stage',
+        'qty',
+        'notes',
+    ];
+
+    protected $casts = [
+        'qty' => 'float',
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | RELATIONSHIPS
+    |--------------------------------------------------------------------------
+     */
+
+    public function productionBatch()
+    {
+        return $this->belongsTo(ProductionBatch::class, 'production_batch_id');
+    }
+
+    public function item()
+    {
+        return $this->belongsTo(Item::class, 'item_id');
+    }
+
+    public function warehouse()
+    {
+        return $this->belongsTo(Warehouse::class, 'warehouse_id');
+    }
+
+    public function sourceLot()
+    {
+        return $this->belongsTo(Lot::class, 'source_lot_id');
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCESSORS / HELPERS
+    |--------------------------------------------------------------------------
+     */
+
+    public function isCuttingStage(): bool
+    {
+        return $this->stage === 'cutting';
+    }
+
+    public function isSewingStage(): bool
+    {
+        return $this->stage === 'sewing';
+    }
+
+    public function isFinishingStage(): bool
+    {
+        return $this->stage === 'finishing';
+    }
+
+    public function getDisplayLabelAttribute(): string
+    {
+        $code = $this->item_code;
+        $qty = number_format($this->qty, 2);
+        $wh = $this->warehouse?->code ?? '-';
+
+        return "{$code} • {$qty} pcs @ {$wh}";
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | SCOPES
+    |--------------------------------------------------------------------------
+     */
+
+    public function scopeStage($q, string $stage)
+    {
+        return $q->where('stage', $stage);
+    }
+
+    public function scopeAvailable($q)
+    {
+        return $q->where('qty', '>', 0);
+    }
+
+    public function scopeForWarehouse($q, int $warehouseId)
+    {
+        return $q->where('warehouse_id', $warehouseId);
+    }
+}

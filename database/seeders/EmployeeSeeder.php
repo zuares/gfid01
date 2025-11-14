@@ -11,10 +11,10 @@ class EmployeeSeeder extends Seeder
     public function run(): void
     {
         $rows = [
-            ['code' => 'MRF', 'name' => 'Maruf', 'role' => 'cutting', 'active' => 1],
-            ['code' => 'MYD', 'name' => 'Miyadi', 'role' => 'cutting', 'active' => 1],
-            ['code' => 'BBI', 'name' => 'Bambang I', 'role' => 'sewing', 'active' => 1],
-            ['code' => 'RDN', 'name' => 'Raden', 'role' => 'sewing', 'active' => 1],
+            ['code' => 'MRF', 'name' => 'Mang Arip', 'role' => 'cutting', 'active' => 1],
+            ['code' => 'MYD', 'name' => 'Mang Yadi', 'role' => 'sewing', 'active' => 1],
+            ['code' => 'BBI', 'name' => 'Bi Rini', 'role' => 'sewing', 'active' => 1],
+            ['code' => 'RDN', 'name' => 'Jang Ridwan', 'role' => 'sewing', 'active' => 1],
         ];
 
         foreach ($rows as $r) {

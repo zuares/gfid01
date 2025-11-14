@@ -5,25 +5,40 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ExternalTransfer extends Model
+class ProductionBatch extends Model
 {
     use HasFactory;
 
-    protected $table = 'external_transfers';
+    protected $table = 'production_batches';
 
     protected $fillable = [
         'code',
         'date',
+        'process',
+        'status',
+        'external_transfer_id',
+        'lot_id',
         'from_warehouse_id',
         'to_warehouse_id',
         'operator_code',
-        'process',
-        'status',
+        'input_qty',
+        'input_uom',
+        'output_total_pcs',
+        'output_items_json',
+        'waste_qty',
+        'remain_qty',
         'notes',
+        'created_by',
+        'updated_by',
     ];
 
     protected $casts = [
         'date' => 'date',
+        'input_qty' => 'float',
+        'output_total_pcs' => 'integer',
+        'waste_qty' => 'float',
+        'remain_qty' => 'float',
+        'output_items_json' => 'array',
     ];
 
     /*
@@ -31,6 +46,17 @@ class ExternalTransfer extends Model
     | RELATIONSHIPS
     |--------------------------------------------------------------------------
      */
+
+    public function externalTransfer()
+    {
+        return $this->belongsTo(ExternalTransfer::class, 'external_transfer_id');
+    }
+
+    public function lot()
+    {
+        // Untuk cutting, ini LOT kain utama
+        return $this->belongsTo(Lot::class, 'lot_id');
+    }
 
     public function fromWarehouse()
     {
@@ -42,15 +68,14 @@ class ExternalTransfer extends Model
         return $this->belongsTo(Warehouse::class, 'to_warehouse_id');
     }
 
-    public function lines()
+    public function createdByUser()
     {
-        return $this->hasMany(ExternalTransferLine::class);
+        return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function batches()
+    public function updatedByUser()
     {
-        // Semua production_batches yang link ke dokumen ini
-        return $this->hasMany(ProductionBatch::class, 'external_transfer_id');
+        return $this->belongsTo(User::class, 'updated_by');
     }
 
     /*
@@ -64,19 +89,31 @@ class ExternalTransfer extends Model
         return $this->process === 'cutting';
     }
 
-    public function isSent(): bool
+    public function isSewing(): bool
     {
-        return $this->status === 'sent';
+        return $this->process === 'sewing';
     }
 
-    public function isReceived(): bool
+    public function isFinishing(): bool
     {
-        return $this->status === 'received';
+        return $this->process === 'finishing';
     }
 
     public function isDone(): bool
     {
         return $this->status === 'done';
+    }
+
+    public function getOutputItemsListAttribute()
+    {
+        // Helper kecil untuk tampilan: kumpulan item hasil cutting
+        $items = $this->output_items_json ?? [];
+        // contoh return: "K7BLK: 300 pcs, K5BLK: 150 pcs"
+        $parts = [];
+        foreach ($items as $code => $qty) {
+            $parts[] = "{$code}: {$qty} pcs";
+        }
+        return implode(', ', $parts);
     }
 
     /*
@@ -88,6 +125,16 @@ class ExternalTransfer extends Model
     public function scopeCutting($q)
     {
         return $q->where('process', 'cutting');
+    }
+
+    public function scopeSewing($q)
+    {
+        return $q->where('process', 'sewing');
+    }
+
+    public function scopeFinishing($q)
+    {
+        return $q->where('process', 'finishing');
     }
 
     public function scopeForProcess($q, string $process)

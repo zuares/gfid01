@@ -29,7 +29,7 @@ class OpeningBalanceSeeder extends Seeder
 
         // ======== 2. Jurnal saldo awal (hapus dulu kalau ada kode sama) ========
         $code = 'JRN-' . now()->format('Ymd') . '-001';
-        DB::table('journal_entries')->where('ref_code', 'SALDO-AWAL')->delete();
+        DB::table('journals')->where('ref_code', 'SALDO-AWAL')->delete();
 
         $journalId = DB::table('journal_entries')->insertGetId([
             'code' => $code,

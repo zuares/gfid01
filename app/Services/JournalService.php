@@ -2,11 +2,48 @@
 
 namespace App\Services;
 
-use Carbon\Carbon;
+use App\Models\JournalEntry;
+use App\Models\JournalLine;
+use Carbon\Carbon; // 🔴 tambahkan ini
 use Illuminate\Support\Facades\DB;
 
 class JournalService
 {
+
+    public function createJournal($date, $source, $ref, array $lines, $notes = null)
+    {
+        return DB::transaction(function () use ($date, $source, $ref, $lines, $notes) {
+
+            // === GENERATE KODE JURNAL ===
+            $prefix = 'JRN';
+            $today = now()->format('ymd');
+
+            $countToday = JournalEntry::whereDate('created_at', now()->toDateString())->count();
+            $seq = str_pad($countToday + 1, 3, '0', STR_PAD_LEFT);
+
+            $code = $prefix . '-' . $today . '-' . $seq;
+
+            // === INSERT HEADER ===
+            $entry = JournalEntry::create([
+                'code' => $code, // ← WAJIB ADA
+                'date' => $date,
+                'description' => trim(($source ?? '') . ' ' . ($ref ?? '') . ' ' . ($notes ?? '')),
+            ]);
+
+            // === INSERT DETAIL ===
+            foreach ($lines as $line) {
+                JournalLine::create([
+                    'journal_entry_id' => $entry->id,
+                    'account_id' => $line['account_code'],
+                    'debit' => $line['debit'],
+                    'credit' => $line['credit'],
+                    'note' => $line['note'] ?? null,
+                ]);
+            }
+
+            return $entry;
+        });
+    }
     /**
      * === PEMBELIAN (KOMPATIBILITAS VERSI LAMA) ===
      * Dr 1201 Persediaan | Cr 1101 Kas (jika $cash = true) ATAU Cr 2101 Hutang (jika $cash = false)

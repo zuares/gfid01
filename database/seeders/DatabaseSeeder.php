@@ -21,8 +21,9 @@ class DatabaseSeeder extends Seeder
             WarehouseItemSeeder::class,
             ItemSeeder::class,
             AccountSeeder::class,
-            OpeningBalanceSeeder::class,
+            // OpeningBalanceSeeder::class,
             EmployeeSeeder::class,
+            EmployeePieceRateSeeder::class,
         ]);
 
     }

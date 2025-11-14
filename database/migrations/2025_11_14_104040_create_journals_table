@@ -1,0 +1,25 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('journals', function (Blueprint $t) {
+            $t->id();
+            $t->date('date');
+            $t->string('source')->nullable(); // e.g. PAYROLL, PURCHASE, etc
+            $t->string('ref')->nullable(); // e.g. PR-240201-001
+            $t->string('notes')->nullable();
+            $t->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('journals');
+    }
+};
