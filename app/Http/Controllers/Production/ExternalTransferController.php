@@ -217,7 +217,7 @@ class ExternalTransferController extends Controller
 
         return redirect()
             ->route('external-transfers.index')
-            ->with('ok', 'Dokumen external transfer berhasil dibuat (status: draft).');
+            ->with('success', 'Dokumen external transfer berhasil dibuat (status: draft).');
     }
 
     /**
@@ -278,7 +278,7 @@ class ExternalTransferController extends Controller
         if ($externalTransfer->status !== 'draft') {
             return redirect()
                 ->route('external-transfers.show', $externalTransfer)
-                ->with('error', 'Dokumen yang sudah dikirim tidak dapat diubah.');
+                ->with('erroror', 'Dokumen yang sudah dikirim tidak dapat diubah.');
         }
 
         $request->validate([
@@ -326,7 +326,7 @@ class ExternalTransferController extends Controller
 
         return redirect()
             ->route('external-transfers.show', $externalTransfer)
-            ->with('ok', 'Dokumen external transfer berhasil diperbarui.');
+            ->with('success', 'Dokumen external transfer berhasil diperbarui.');
     }
 
     /**
@@ -339,10 +339,10 @@ class ExternalTransferController extends Controller
         $t = ExternalTransfer::with('lines')->findOrFail($id);
 
         if ($t->status !== 'draft') {
-            return back()->with('err', 'Hanya dokumen draft yang bisa dikirim.');
+            return back()->with('error', 'Hanya dokumen draft yang bisa dikirim.');
         }
         if ($t->lines->isEmpty()) {
-            return back()->with('err', "Dokumen {$t->code} tidak punya detail LOT.");
+            return back()->with('error', "Dokumen {$t->code} tidak punya detail LOT.");
         }
 
         try {
@@ -369,10 +369,10 @@ class ExternalTransferController extends Controller
                 ]);
             });
         } catch (\Throwable $e) {
-            return back()->with('err', 'Gagal mengirim dokumen: ' . $e->getMessage());
+            return back()->with('error', 'Gagal mengirim dokumen: ' . $e->getMessage());
         }
 
-        return back()->with('ok', "Dokumen {$t->code} berhasil dikirim dan stok berpindah gudang.");
+        return back()->with('success', "Dokumen {$t->code} berhasil dikirim dan stok berpindah gudang.");
     }
 
     /**
@@ -381,7 +381,7 @@ class ExternalTransferController extends Controller
     public function receive(ExternalTransfer $externalTransfer)
     {
         if ($externalTransfer->status !== 'sent') {
-            return back()->with('err', 'Hanya dokumen dengan status sent yang bisa diterima.');
+            return back()->with('error', 'Hanya dokumen dengan status sent yang bisa diterima.');
         }
 
         $externalTransfer->update([
@@ -390,7 +390,7 @@ class ExternalTransferController extends Controller
 
         // Di sini nanti bisa sambungkan ke InventoryService / mutasi stok
 
-        return back()->with('ok', "Dokumen {$externalTransfer->code} telah dikonfirmasi diterima (status: received).");
+        return back()->with('success', "Dokumen {$externalTransfer->code} telah dikonfirmasi diterima (status: received).");
     }
 
     /**
@@ -400,14 +400,14 @@ class ExternalTransferController extends Controller
     public function done(ExternalTransfer $externalTransfer)
     {
         if (!in_array($externalTransfer->status, ['received', 'sent'])) {
-            return back()->with('err', 'Hanya dokumen sent/received yang bisa ditandai selesai.');
+            return back()->with('error', 'Hanya dokumen sent/received yang bisa ditandai selesai.');
         }
 
         $externalTransfer->update([
             'status' => 'done',
         ]);
 
-        return back()->with('ok', "Dokumen {$externalTransfer->code} telah ditandai selesai (status: done).");
+        return back()->with('success', "Dokumen {$externalTransfer->code} telah ditandai selesai (status: done).");
     }
 
     /**
@@ -417,7 +417,7 @@ class ExternalTransferController extends Controller
     public function destroy(ExternalTransfer $externalTransfer)
     {
         if ($externalTransfer->status !== 'draft') {
-            return back()->with('err', 'Hanya dokumen draft yang dapat dihapus.');
+            return back()->with('error', 'Hanya dokumen draft yang dapat dihapus.');
         }
 
         $code = $externalTransfer->code;
@@ -429,7 +429,7 @@ class ExternalTransferController extends Controller
 
         return redirect()
             ->route('external-transfers.index')
-            ->with('ok', "Dokumen {$code} berhasil dihapus.");
+            ->with('success', "Dokumen {$code} berhasil dihapus.");
     }
 
     /*

@@ -57,7 +57,7 @@ class PurchasePaymentController extends Controller
             $pps->recalc($invoice->fresh('payments'));
         });
 
-        return back()->with('ok', 'Pembayaran tersimpan.');
+        return back()->with('success', 'Pembayaran tersimpan.');
     }
 
     /** Hapus pembayaran + reversal jurnal */
@@ -89,6 +89,6 @@ class PurchasePaymentController extends Controller
             $pps->recalc($invoice->fresh('payments'));
         });
 
-        return back()->with('ok', 'Pembayaran dihapus & jurnal di-reversal.');
+        return back()->with('success', 'Pembayaran dihapus & jurnal di-reversal.');
     }
 }

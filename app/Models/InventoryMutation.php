@@ -8,7 +8,17 @@ class InventoryMutation extends Model
 {
     protected $table = 'inventory_mutations';
     protected $fillable = [
-        'warehouse_id', 'lot_id', 'ref_code', 'type', 'qty_in', 'qty_out', 'unit', 'date', 'note',
+        'warehouse_id',
+        'lot_id',
+        'item_id',
+        'item_code',
+        'type',
+        'qty_in',
+        'qty_out',
+        'unit',
+        'ref_code',
+        'note',
+        'date',
     ];
 
     protected $casts = ['date' => 'datetime'];

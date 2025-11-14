@@ -22,7 +22,8 @@ class MutationController extends Controller
             'date_to' => ['nullable', 'date'],
             'q' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:200'],
-            'sort' => ['nullable', 'in:date_desc,date_asc'],
+            'sort' => ['nullable', 'in:date_desc,date_asc,created_desc,created_asc'],
+
         ]);
 
         $itemCode = $data['item_code'] ?? null;
@@ -85,10 +86,14 @@ class MutationController extends Controller
         ]);
 
         // ==== SORT ====
-        $listQuery = match ($sort) {
-            'date_asc' => $listQuery->orderBy('m.date')->orderBy('m.id'),
-            default => $listQuery->orderByDesc('m.date')->orderByDesc('m.id'),
-        };
+        // $listQuery = match ($sort) {
+        //     'date_asc' => $listQuery->orderBy('m.date')->orderBy('m.id'),
+        //     'created_asc' => $listQuery->orderBy('m.created_at')->orderBy('m.id'),
+        //     'created_desc' => $listQuery->orderByDesc('m.created_at')->orderByDesc('m.id'),
+        //     default => $listQuery->orderByDesc('m.date')->orderByDesc('m.id'),
+        // };
+        // Ganti total sorting menjadi hanya created_at
+        $listQuery->orderByDesc('m.created_at')->orderByDesc('m.id');
 
         // ==== PAGINATION ====
         $rows = $listQuery->paginate($perPage)->withQueryString();

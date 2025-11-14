@@ -1,3 +1,4 @@
+
 <?php
 
 use Illuminate\Database\Migrations\Migration;
@@ -8,42 +9,26 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('finished_goods', function (Blueprint $table) {
-            $table->id();
+        Schema::create('finished_goods', function (Blueprint $t) {
+            $t->id();
 
-            // batch produksi terakhir yang menghasilkan FG ini
-            $table->foreignId('production_batch_id')
-                ->nullable()
-                ->constrained('production_batches')
-                ->nullOnDelete();
+            $t->unsignedBigInteger('production_batch_id')->nullable();
+            $t->unsignedBigInteger('item_id');
+            $t->unsignedBigInteger('lot_id'); // LOT khusus FG
+            $t->unsignedBigInteger('warehouse_id');
 
-            // Item barang jadi (K7BLK, K5BLK, dst.)
-            $table->foreignId('item_id')
-                ->constrained('items');
-            $table->string('item_code', 50);
+            $t->string('item_code'); // sync dengan items.code
+            $t->string('unit', 16)->default('pcs'); // sama seperti inventory_stocks.unit
+            $t->decimal('qty', 18, 4)->default(0);
 
-            // Gudang tempat simpan FG
-            $table->foreignId('warehouse_id')
-                ->constrained('warehouses');
+            $t->unsignedBigInteger('source_lot_id')->nullable(); // LOT kain asal (optional)
+            $t->string('variant', 50)->nullable();
+            $t->string('notes')->nullable();
 
-            // Opsional: lot asal kain (traceability)
-            $table->foreignId('source_lot_id')
-                ->nullable()
-                ->constrained('lots')
-                ->nullOnDelete();
+            $t->timestamps();
 
-            // Qty barang jadi
-            $table->decimal('qty', 12, 2)->default(0);
-
-            // Opsional: misal size/variant kalau nanti kamu mau pecah per size
-            $table->string('variant', 50)->nullable();
-
-            $table->text('notes')->nullable();
-
-            $table->timestamps();
-
-            $table->index(['warehouse_id', 'item_id']);
-            $table->index(['item_code']);
+            $t->index(['item_id', 'warehouse_id']);
+            $t->index(['lot_id']);
         });
     }
 

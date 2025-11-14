@@ -290,7 +290,7 @@ class PurchaseController extends Controller
         if (!empty($data['_idem'])) {
             $exists = DB::table('purchase_invoices')->where('idempotency_key', $data['_idem'])->exists();
             if ($exists) {
-                return redirect()->route('purchasing.invoices.index')->with('ok', "Pembelian {$invCode} sudah tercatat.");
+                return redirect()->route('purchasing.invoices.index')->with('succes', "Pembelian {$invCode} sudah tercatat.");
             }
         }
 
@@ -343,7 +343,7 @@ class PurchaseController extends Controller
 
         return redirect()
             ->route('purchasing.invoices.index')
-            ->with('ok', "Draft pembelian {$invCode} tersimpan.");
+            ->with('success', "Draft pembelian {$invCode} tersimpan.");
     }
 
     /** AJAX: harga terakhir per supplier+item */
@@ -353,7 +353,7 @@ class PurchaseController extends Controller
         $itemId = (int) $r->get('item_id');
 
         if (!$supplierId || !$itemId) {
-            return response()->json(['ok' => false, 'msg' => 'supplier_id dan item_id wajib diisi'], 422);
+            return response()->json(['success' => false, 'msg' => 'supplier_id dan item_id wajib diisi'], 422);
         }
 
         $last = PurchaseInvoiceLine::with(['invoice:id,date,supplier_id,code'])
@@ -361,11 +361,11 @@ class PurchaseController extends Controller
             ->first();
 
         if (!$last) {
-            return response()->json(['ok' => true, 'data' => null]);
+            return response()->json(['success' => true, 'data' => null]);
         }
 
         return response()->json([
-            'ok' => true,
+            'success' => true,
             'data' => [
                 'unit_cost' => (float) $last->unit_cost,
                 'unit' => $last->unit,
@@ -404,7 +404,7 @@ class PurchaseController extends Controller
             ];
         });
 
-        return response()->json(['ok' => true, 'data' => $data]);
+        return response()->json(['success' => true, 'data' => $data]);
     }
 
     public function post(Request $r, PurchaseInvoice $invoice)
@@ -417,7 +417,7 @@ class PurchaseController extends Controller
 
         return redirect()
             ->route('purchasing.invoices.show', $invoice)
-            ->with('ok', "Invoice {$invoice->code} berhasil diposting.");
+            ->with('success', "Invoice {$invoice->code} berhasil diposting.");
     }
 
     /** Hitung next sequence untuk INV-BKU-YYMMDD-### */

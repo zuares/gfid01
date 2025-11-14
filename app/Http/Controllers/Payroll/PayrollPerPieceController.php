@@ -46,7 +46,7 @@ class PayrollPerPieceController extends Controller
 
         return redirect()
             ->route('payroll.runs.show', $run->id)
-            ->with('ok', 'Payroll per pcs berhasil dibuat: ' . $run->code);
+            ->with('success', 'Payroll per pcs berhasil dibuat: ' . $run->code);
     }
 
     /**

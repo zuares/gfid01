@@ -23,22 +23,6 @@
         {{-- ===================== --}}
         <div class="section">Produksi</div>
 
-        {{-- Cutting Internal --}}
-        <a class="nav-link {{ request()->is('cutting*') ? 'active' : '' }}" href="{{ url('/cutting') }}">
-            <i class="bi bi-scissors"></i><span>Cutting</span>
-        </a>
-
-        {{-- Sewing Internal --}}
-        <a class="nav-link {{ request()->routeIs('sewing.*') ? 'active' : '' }}" href="{{ route('sewing.index') }}">
-            <i class="bi bi-tools"></i><span>Sewing</span>
-        </a>
-
-        {{-- Finishing --}}
-        <a class="nav-link {{ request()->routeIs('finishing.*') ? 'active' : '' }}"
-            href="{{ route('finishing.index') }}">
-            <i class="bi bi-check2-square"></i><span>Finishing</span>
-        </a>
-
         {{-- External Transfer --}}
         <a class="nav-link {{ request()->routeIs('external-transfers.*') ? 'active' : '' }}"
             href="{{ route('external-transfers.index') }}">
@@ -49,6 +33,17 @@
         <a class="nav-link {{ request()->routeIs('vendor-cutting.*') ? 'active' : '' }}"
             href="{{ route('vendor-cutting.index') }}">
             <i class="bi bi-scissors"></i><span>Vendor Cutting</span>
+        </a>
+
+        {{-- Sewing Internal --}}
+        <a class="nav-link {{ request()->routeIs('sewing.*') ? 'active' : '' }}" href="{{ route('sewing.index') }}">
+            <i class="bi bi-tools"></i><span>Sewing</span>
+        </a>
+
+        {{-- Finishing (UPDATE) --}}
+        <a class="nav-link {{ request()->routeIs('finishing.*') ? 'active' : '' }}"
+            href="{{ route('finishing.index') }}">
+            <i class="bi bi-check2-square"></i><span>Finishing</span>
         </a>
 
         {{-- ===================== --}}
@@ -80,13 +75,13 @@
             <i class="bi bi-cash-coin"></i><span>Tarif Per Pcs</span>
         </a>
 
-        {{-- Data gaji biasa --}}
+        {{-- Data gaji --}}
         <a class="nav-link {{ request()->is('payroll/entries*') ? 'active' : '' }}"
             href="{{ url('/payroll/entries') }}">
             <i class="bi bi-person-lines-fill"></i><span>Data Gaji</span>
         </a>
 
-        {{-- Payroll Per PCS (menu baru) --}}
+        {{-- Payroll Per PCS --}}
         <a class="nav-link {{ request()->routeIs('payroll.runs.*') ? 'active' : '' }}"
             href="{{ route('payroll.runs.index') }}">
             <i class="bi bi-calculator"></i><span>Payroll per PCS</span>

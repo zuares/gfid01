@@ -203,7 +203,7 @@ class VendorCuttingController extends Controller
 
         return redirect()
             ->route('vendor-cutting.index')
-            ->with('ok', "Hasil cutting untuk {$t->code} berhasil disimpan dan stok WIP dibuat.");
+            ->with('success', "Hasil cutting untuk {$t->code} berhasil disimpan dan stok WIP dibuat.");
     }
 
     /**

@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Production;
 
 use App\Http\Controllers\Controller;
 use App\Models\FinishedGood;
+use App\Models\Lot;
 use App\Models\ProductionBatch;
 use App\Models\WipItem;
+use App\Services\InventoryService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,9 +27,14 @@ class FinishingController extends Controller
             ->orderBy('item_code')
             ->paginate(50);
 
-        return view('production.finishing.index', compact('wips'));
+        return view('production.finished.index', compact('wips'));
     }
 
+    public function show(FinishedGood $fg)
+    {
+        $fg->load(['item', 'warehouse', 'lot', 'sourceLot']);
+        return view('production.finished.show', compact('fg'));
+    }
     /**
      * Form buat batch finishing dari 1 WIP hasil sewing.
      */
@@ -37,7 +45,7 @@ class FinishingController extends Controller
             ->available()
             ->findOrFail($wipItemId);
 
-        return view('production.finishing.create', [
+        return view('production.finished.create', [
             'wip' => $wip,
         ]);
     }
@@ -79,9 +87,25 @@ class FinishingController extends Controller
                 ]);
             }
 
+            $date = Carbon::parse($data['date']);
             $qtyToFinish = (float) $data['qty_to_finish'];
             $fgQty = (float) $data['fg_qty'];
             $rejectQty = (float) ($data['reject_qty'] ?? 0);
+
+            $fgUnit = 'pcs';
+
+            $lotPrefix = 'LOT-FG-' . $wip->item_code . '-' . $date->format('ymd');
+            $running = Lot::where('code', 'like', $lotPrefix . '%')->count() + 1;
+            $lotCode = $lotPrefix . '-' . str_pad($running, 3, '0', STR_PAD_LEFT);
+
+            $fgLot = Lot::create([
+                'item_id' => $wip->item_id,
+                'code' => $lotCode,
+                'unit' => 'pcs',
+                'initial_qty' => $fgQty,
+                'unit_cost' => 0,
+                'date' => $date->toDateString(),
+            ]);
 
             // 1) Generate kode batch finishing
             $date = \Carbon\Carbon::parse($data['date']);
@@ -128,24 +152,37 @@ class FinishingController extends Controller
             // 3) Kurangi stok WIP sewing
             $wip->qty = $wip->qty - $qtyToFinish;
             $wip->save();
-
             // 4) Insert barang jadi ke finished_goods
-            FinishedGood::create([
+            $fg = FinishedGood::create([
                 'production_batch_id' => $batch->id,
                 'item_id' => $wip->item_id,
                 'item_code' => $wip->item_code,
+                'lot_id' => $fgLot->id,
                 'warehouse_id' => $wip->warehouse_id,
-                'source_lot_id' => $wip->source_lot_id,
+                'unit' => $fgUnit,
                 'qty' => $fgQty,
-                'variant' => null, // bisa diisi size/note jika perlu
+                'source_lot_id' => $wip->source_lot_id,
+                'variant' => null,
                 'notes' => 'FG dari finishing ' . $batch->code,
             ]);
-
             // 5) TODO: integrasi ke modul Inventory FG (mutasi stok, dsb.)
+            InventoryService::addStockLot([
+                'warehouse_id' => $fg->warehouse_id,
+                'lot_id' => $fg->lot_id, // LOT FG baru
+                'item_id' => $fg->item_id,
+                'item_code' => $fg->item_code,
+                'unit' => $fg->unit, // 'pcs'
+                'qty' => $fg->qty,
+                'date' => $date->toDateString(),
+                'type' => 'FG_IN',
+                'ref_code' => $batch->code,
+                'note' => 'FG dari finishing ' . $batch->code,
+            ]);
+
         });
 
         return redirect()
             ->route('finishing.index')
-            ->with('success', 'Batch finishing berhasil dibuat dan stok FG ditambahkan.');
+            ->with('ok', 'Batch finishing berhasil dibuat dan stok FG ditambahkan.');
     }
 }

@@ -20,6 +20,8 @@ class FinishedGood extends Model
         'qty',
         'variant',
         'notes',
+        'lot_id',
+        'unit',
     ];
 
     protected $casts = [
@@ -66,4 +68,10 @@ class FinishedGood extends Model
 
         return "{$code} • {$qty} pcs @ {$wh}";
     }
+
+    public function lot()
+    {
+        return $this->belongsTo(Lot::class, 'lot_id');
+    }
+
 }

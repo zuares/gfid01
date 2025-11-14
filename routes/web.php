@@ -6,7 +6,6 @@ use App\Http\Controllers\Inventory\MutationController;
 use App\Http\Controllers\Inventory\StockController;
 use App\Http\Controllers\Master\WarehouseController;
 use App\Http\Controllers\Payroll\PayrollPerPieceController;
-use App\Http\Controllers\Production\CuttingExternalInboundController;
 use App\Http\Controllers\Production\ExternalTransferController;
 use App\Http\Controllers\Production\FinishingController;
 use App\Http\Controllers\Production\SewingController;
@@ -95,18 +94,18 @@ Route::prefix('master/warehouses')
         Route::delete('/{warehouse}', [WarehouseController::class, 'destroy'])->name('destroy');
     });
 
-Route::prefix('production/cutting/external-inbound')
-    ->name('production.cutting.external-inbound.')
-    ->group(function () {
-        Route::get('/', [CuttingExternalInboundController::class, 'index'])
-            ->name('index');
+// Route::prefix('production/cutting/external-inbound')
+//     ->name('production.cutting.external-inbound.')
+//     ->group(function () {
+//         Route::get('/', [CuttingExternalInboundController::class, 'index'])
+//             ->name('index');
 
-        Route::get('/{id}', [CuttingExternalInboundController::class, 'show'])
-            ->name('show');
+//         Route::get('/{id}', [CuttingExternalInboundController::class, 'show'])
+//             ->name('show');
 
-        Route::post('/{id}/confirm', [CuttingExternalInboundController::class, 'confirm'])
-            ->name('confirm');
-    });
+//         Route::post('/{id}/confirm', [CuttingExternalInboundController::class, 'confirm'])
+//             ->name('confirm');
+//     });
 
 Route::prefix('production/external')->name('external-transfers.')->group(function () {
     Route::get('/', [ExternalTransferController::class, 'index'])->name('index');
@@ -145,6 +144,7 @@ Route::prefix('production/finishing')
         Route::get('/', [FinishingController::class, 'index'])->name('index');
         Route::get('{wipItem}/create', [FinishingController::class, 'create'])->name('create');
         Route::post('{wipItem}', [FinishingController::class, 'store'])->name('store');
+        Route::get('{wipItem}', [FinishingController::class, 'show'])->name('show');
     });
 
 Route::get('/ajax/items/finished', [ItemLookupController::class, 'searchFinished'])
