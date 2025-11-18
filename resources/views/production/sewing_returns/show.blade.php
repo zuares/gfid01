@@ -1,5 +1,6 @@
 @extends('layouts.app')
-@section('title', 'Produksi • Finishing #' . $job->code)
+
+@section('title', 'Produksi • Setor Jahit #' . $sewingReturn->code)
 
 @push('head')
     <style>
@@ -63,41 +64,44 @@
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <h4 class="mb-1">
-                    Finishing
-                    <span class="mono">#{{ $job->code }}</span>
+                    Setor Hasil Jahit
+                    <span class="mono">#{{ $sewingReturn->code }}</span>
                 </h4>
                 <div class="small text-muted">
                     Tanggal:
-                    {{ $job->date?->format('d M Y') ?? '-' }}
-                    @if ($job->operator)
-                        • Operator:
-                        {{ $job->operator->code ?? 'OP-' . $job->operator->id }}
-                        — {{ $job->operator->name }}
+                    {{ $sewingReturn->date?->format('d M Y') ?? '-' }}
+                    •
+                    Operator:
+                    @if ($sewingReturn->operator)
+                        {{ $sewingReturn->operator->code ?? 'OP-' . $sewingReturn->operator->id }}
+                        — {{ $sewingReturn->operator->name }}
+                    @else
+                        <span class="text-muted">-</span>
                     @endif
                 </div>
                 <div class="mt-1">
                     @php
-                        $status = $job->status ?? 'draft';
+                        $status = $sewingReturn->status ?? 'draft';
                     @endphp
                     <span class="badge bg-{{ $status === 'posted' ? 'success' : 'secondary' }}">
                         {{ strtoupper($status) }}
                     </span>
-                    @if ($job->posted_at)
+                    @if ($sewingReturn->posted_at)
                         <span class="small text-muted ms-2">
-                            Posted at: {{ $job->posted_at->format('d M Y H:i') }}
+                            Posted at: {{ $sewingReturn->posted_at->format('d M Y H:i') }}
                         </span>
                     @endif
                 </div>
             </div>
 
             <div class="d-flex gap-2">
-                <a href="{{ route('production.finishing.index') }}" class="btn btn-outline-secondary btn-sm">
+                <a href="{{ route('production.sewing_returns.index') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-arrow-left me-1"></i> Kembali
                 </a>
 
-                @if (($job->status ?? 'draft') === 'draft')
-                    <form method="post" action="{{ route('production.finishing.post', $job->id) }}"
-                        onsubmit="return confirm('Posting dokumen finishing ini? Setelah posting, dokumen tidak bisa diubah.');">
+                @if (($sewingReturn->status ?? 'draft') === 'draft')
+                    <form method="post" action="{{ route('production.sewing_returns.post', $sewingReturn->id) }}"
+                        onsubmit="return confirm('Posting setor jahit ini? Setelah posting, dokumen tidak bisa diubah.');">
                         @csrf
                         <button type="submit" class="btn btn-success btn-sm">
                             <i class="bi bi-check2-circle me-1"></i> Posting
@@ -132,14 +136,14 @@
                     <div class="col-md-4">
                         <div class="text-muted small mb-1">Kode Dokumen</div>
                         <div class="fw-semibold mono">
-                            {{ $job->code }}
+                            {{ $sewingReturn->code }}
                         </div>
                     </div>
 
                     <div class="col-md-4">
-                        <div class="text-muted small mb-1">Tanggal Finishing</div>
+                        <div class="text-muted small mb-1">Tanggal Setor</div>
                         <div class="fw-semibold mono">
-                            {{ $job->date?->format('d M Y') ?? '-' }}
+                            {{ $sewingReturn->date?->format('d M Y') ?? '-' }}
                         </div>
                     </div>
 
@@ -153,49 +157,49 @@
                     </div>
 
                     <div class="col-md-4">
-                        <div class="text-muted small mb-1">Operator</div>
-                        @if ($job->operator)
+                        <div class="text-muted small mb-1">Operator / Penjahit</div>
+                        @if ($sewingReturn->operator)
                             <div class="fw-semibold">
-                                {{ $job->operator->code ?? 'EMP-' . $job->operator->id }}
-                                — {{ $job->operator->name }}
+                                {{ $sewingReturn->operator->code ?? 'OP-' . $sewingReturn->operator->id }}
+                                — {{ $sewingReturn->operator->name }}
                             </div>
                         @else
-                            <div class="text-muted">—</div>
+                            <div class="text-muted">-</div>
                         @endif
                     </div>
 
                     <div class="col-md-4">
-                        <div class="text-muted small mb-1">Dari Gudang (Sumber)</div>
-                        @if ($job->fromWarehouse)
+                        <div class="text-muted small mb-1">Dari Gudang (Operator)</div>
+                        @if ($sewingReturn->fromWarehouse)
                             <div class="fw-semibold mono">
-                                {{ $job->fromWarehouse->code }}
+                                {{ $sewingReturn->fromWarehouse->code }}
                             </div>
                             <div class="text-muted">
-                                {{ $job->fromWarehouse->name }}
+                                {{ $sewingReturn->fromWarehouse->name }}
                             </div>
                         @else
-                            <div class="text-muted">—</div>
+                            <div class="text-muted">-</div>
                         @endif
                     </div>
 
                     <div class="col-md-4">
-                        <div class="text-muted small mb-1">Ke Gudang (Tujuan)</div>
-                        @if ($job->toWarehouse)
+                        <div class="text-muted small mb-1">Ke Gudang (WIP / Finishing)</div>
+                        @if ($sewingReturn->toWarehouse)
                             <div class="fw-semibold mono">
-                                {{ $job->toWarehouse->code }}
+                                {{ $sewingReturn->toWarehouse->code }}
                             </div>
                             <div class="text-muted">
-                                {{ $job->toWarehouse->name }}
+                                {{ $sewingReturn->toWarehouse->name }}
                             </div>
                         @else
-                            <div class="text-muted">—</div>
+                            <div class="text-muted">-</div>
                         @endif
                     </div>
 
                     <div class="col-md-12">
                         <div class="text-muted small mb-1">Catatan Umum</div>
                         <div>
-                            {{ $job->notes ?: '—' }}
+                            {{ $sewingReturn->notes ?: '—' }}
                         </div>
                     </div>
                 </div>
@@ -206,13 +210,13 @@
         <div class="card mb-3">
             <div class="card-body small d-flex flex-wrap gap-3">
                 <div>
-                    <div class="text-muted small mb-1">Total OK (Masuk FG)</div>
+                    <div class="text-muted small mb-1">Total OK</div>
                     <div class="fw-semibold mono">
                         {{ number_format($totals['ok'], 2, ',', '.') }}
                     </div>
                 </div>
                 <div>
-                    <div class="text-muted small mb-1">Total Reject Finishing</div>
+                    <div class="text-muted small mb-1">Total Reject</div>
                     <div class="fw-semibold mono text-danger">
                         {{ number_format($totals['reject'], 2, ',', '.') }}
                     </div>
@@ -230,10 +234,10 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span class="fw-semibold small text-uppercase">
-                    Detail Finishing
+                    Detail Hasil Jahit
                 </span>
                 <small class="text-muted">
-                    Sumber dari stok WIP-FIN yang diproses finishing.
+                    Sumber dari dokumen Ambil Jahit yang sudah disetor.
                 </small>
             </div>
 
@@ -243,20 +247,41 @@
                         <thead>
                             <tr>
                                 <th style="width: 40px;">#</th>
+                                <th>Kode Ambil Jahit</th>
+                                <th>Tgl Ambil</th>
                                 <th>Item / LOT</th>
-                                <th class="text-end">Qty Sumber<br><span class="small text-muted">(keluar WIP-FIN)</span>
-                                </th>
-                                <th class="text-end">Qty OK<br><span class="small text-muted">(masuk FG)</span></th>
+                                <th class="text-end">Qty OK</th>
                                 <th class="text-end">Qty Reject</th>
                                 <th>Unit</th>
                                 <th>Catatan Baris</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse ($job->lines as $idx => $line)
+                            @forelse ($sewingReturn->lines as $idx => $line)
+                                @php
+                                    $pick = $line->sewingPickLine->sewingPick ?? null;
+                                @endphp
                                 <tr>
                                     <td class="mono">
                                         {{ $idx + 1 }}
+                                    </td>
+
+                                    {{-- Kode Ambil Jahit --}}
+                                    <td class="mono">
+                                        @if ($pick)
+                                            {{ $pick->code }}
+                                        @else
+                                            <span class="text-muted">-</span>
+                                        @endif
+                                    </td>
+
+                                    {{-- Tanggal Ambil --}}
+                                    <td class="mono">
+                                        @if ($pick && $pick->date)
+                                            {{ \Carbon\Carbon::parse($pick->date)->format('d M Y') }}
+                                        @else
+                                            <span class="text-muted">-</span>
+                                        @endif
                                     </td>
 
                                     {{-- Item + LOT --}}
@@ -268,11 +293,6 @@
                                                 #{{ $line->lot_id }}
                                             </span>
                                         </div>
-                                    </td>
-
-                                    {{-- Qty Sumber --}}
-                                    <td class="text-end mono">
-                                        {{ number_format($line->qty_source, 2, ',', '.') }}
                                     </td>
 
                                     {{-- Qty OK --}}
@@ -297,8 +317,8 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="7" class="text-center text-muted py-4">
-                                        Tidak ada detail finishing pada dokumen ini.
+                                    <td colspan="8" class="text-center text-muted py-4">
+                                        Tidak ada detail baris pada dokumen ini.
                                     </td>
                                 </tr>
                             @endforelse

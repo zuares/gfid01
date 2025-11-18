@@ -232,15 +232,25 @@
                     'date_to' => request('date_to'),
                 ];
                 $chip = fn($p) => array_filter($p, fn($v) => $v !== null && $v !== '');
-                $types = [
-                    'PURCHASE_IN',
-                    'TRANSFER_OUT',
-                    'TRANSFER_IN',
-                    'CUTTING_USE',
-                    'PRODUCTION_IN',
-                    'ADJUSTMENT',
-                    'SALE_OUT',
-                ];
+
+                // Ambil type dari controller (distinct dari DB)
+                $types = collect($availableTypes ?? [])
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                // Fallback kalau belum ada data sama sekali
+                if (empty($types)) {
+                    $types = [
+                        'PURCHASE_IN',
+                        'TRANSFER_OUT',
+                        'TRANSFER_IN',
+                        'CUTTING_USE',
+                        'PRODUCTION_IN',
+                        'ADJUSTMENT',
+                        'SALE_OUT',
+                    ];
+                }
             @endphp
 
             <a class="btn btn-sm btn-outline-secondary {{ request('type') ? '' : 'active' }}"
@@ -248,7 +258,9 @@
 
             @foreach ($types as $t)
                 <a class="btn btn-sm btn-outline-secondary {{ request('type') === $t ? 'active' : '' }}"
-                    href="{{ route('inventory.mutations.index', $chip($baseParams + ['type' => $t])) }}">{{ $t }}</a>
+                    href="{{ route('inventory.mutations.index', $chip($baseParams + ['type' => $t])) }}">
+                    {{ $t }}
+                </a>
             @endforeach
         </div>
 

@@ -293,42 +293,25 @@ class VendorCuttingController extends Controller
             return back()->withErrors('Tidak bisa kirim ke QC. Belum ada hasil cutting.');
         }
 
-        // 1. Update status semua bundle → sent_qc
-        $batch->bundles()->update([
-            'status' => 'sent_qc',
-        ]);
+        \DB::transaction(function () use ($batch) {
 
-        // 2. Update batch
-        $batch->update([
-            'status' => 'waiting_qc',
-            'finished_at' => $batch->finished_at ?? now(), // isi kalau belum pernah di-set
-        ]);
-
-        // 3. OPSIONAL: Buat WIP Cutting agar QC & Sewing bisa pakai stok WIP
-        // group item agar qty per item rapi
-        $grouped = $batch->bundles()
-            ->selectRaw('item_id, item_code, SUM(qty_cut) as total_qty')
-            ->groupBy('item_id', 'item_code')
-            ->get();
-
-        foreach ($grouped as $row) {
-
-            // SIMPAN di tabel WIP (jika kamu punya)
-            // Jika belum punya tabel wip_items, aku bisa buatkan juga
-            \DB::table('wip_items')->insert([
-                'production_batch_id' => $batch->id,
-                'item_id' => $row->item_id,
-                'item_code' => $row->item_code,
-                'stage' => 'cutting',
-                'qty' => $row->total_qty,
-                'unit' => 'pcs',
-                'warehouse_id' => 1, // default ke KONTRAKAN - nanti sesuaikan
-                'status' => 'in_qc',
-                'created_at' => now(),
-                'updated_at' => now(),
+            // 1. Update status semua bundle → sent_qc
+            $batch->bundles()->update([
+                'status' => 'sent_qc',
             ]);
 
-        }
+            // 2. Update batch
+            $batch->update([
+                'status' => 'waiting_qc',
+                'finished_at' => $batch->finished_at ?? now(), // isi kalau belum pernah di-set
+            ]);
+
+            // 3. ❌ JANGAN lagi insert ke wip_items di sini
+            //    WIP hasil cutting kita buat SETELAH QC DONE,
+            //    lewat method QC update(), supaya:
+            //    - qty_ok yang dipakai
+            //    - punya lot_id & cutting_bundle_id per bundle
+        });
 
         return redirect()
             ->route('production.vendor_cutting.batches.show', $batch->id)

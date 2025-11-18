@@ -1,14 +1,20 @@
 <?php
 
 use App\Http\Controllers\Production\FinishingController;
+use App\Http\Controllers\Production\PackingJobController;
+use App\Http\Controllers\Production\SewingPickController;
+use App\Http\Controllers\Production\SewingReportController;
+use App\Http\Controllers\Production\SewingReturnController;
 use App\Http\Controllers\Production\VendorCuttingController;
 use App\Http\Controllers\Production\WipCuttingQcController;
-use App\Http\Controllers\Production\WipSewingController;
-use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth', 'role:cutting,admin'])->group(function () {
 
     Route::prefix('production')->name('production.')->group(function () {
+
+        // ==========================
+        // VENDOR CUTTING
+        // ==========================
         Route::prefix('vendor-cutting')->name('vendor_cutting.')
             ->group(function () {
 
@@ -30,12 +36,14 @@ Route::middleware(['auth', 'role:cutting,admin'])->group(function () {
 
                 Route::post('/batches/{batch}/results', [VendorCuttingController::class, 'updateResults'])
                     ->name('batches.results.update');
+
                 Route::post('/batches/{batch}/send-to-qc', [VendorCuttingController::class, 'sendToQc'])
                     ->name('batches.send_to_qc');
-
             });
 
-        // QC Cutting (WIP)
+        // ==========================
+        // QC CUTTING (WIP)
+        // ==========================
         Route::prefix('wip-cutting-qc')
             ->name('wip_cutting_qc.')
             ->group(function () {
@@ -44,7 +52,7 @@ Route::middleware(['auth', 'role:cutting,admin'])->group(function () {
                     ->name('index');
 
                 Route::get('/{batch}', [WipCuttingQcController::class, 'show'])
-                    ->name('show'); // 👈 ROUTE SHOW YANG BARU
+                    ->name('show'); // ROUTE SHOW
 
                 Route::get('/{batch}/edit', [WipCuttingQcController::class, 'edit'])
                     ->name('edit');
@@ -54,68 +62,113 @@ Route::middleware(['auth', 'role:cutting,admin'])->group(function () {
             });
 
         // ==========================
-        // WIP SEWING
+        // AMBIL JAHIT (SEWING PICKS)
         // ==========================
-        Route::prefix('wip-sewing')
-            ->name('wip_sewing.')
+        Route::prefix('sewing-picks')
+            ->name('sewing_picks.')
             ->group(function () {
 
-                // Daftar batch yang sudah qc_done & status sewing
-                Route::get('/', [WipSewingController::class, 'index'])
+                // List dokumen ambil jahit
+                Route::get('/', [SewingPickController::class, 'index'])
                     ->name('index');
 
-                // Halaman konfirmasi pembuatan Sewing Batch dari ProductionBatch
-                Route::get('/create-from-batch/{batch}', [WipSewingController::class, 'createFromBatch'])
-                    ->name('create_from_batch');
+                // Form buat dokumen ambil jahit (bisa dari WIP Cutting / WIP Sewing index)
+                Route::get('/create', [SewingPickController::class, 'create'])
+                    ->name('create');
 
-                // Proses simpan sewing_batch + sewing_bundle_lines (AUTO GENERATE)
-                Route::post('/create-from-batch/{batch}', [WipSewingController::class, 'storeFromBatch'])
-                    ->name('store_from_batch');
+                // Simpan dokumen ambil jahit + mutasi stok (InventoryService->transfer)
+                Route::post('/', [SewingPickController::class, 'store'])
+                    ->name('store');
 
-                // Untuk next step (lihat / edit / complete sewing)
-                Route::get('/{sewingBatch}', [WipSewingController::class, 'show'])
+                // Detail 1 dokumen ambil jahit
+                Route::get('/{sewingPick}', [SewingPickController::class, 'show'])
                     ->name('show');
 
-                Route::get('/{sewingBatch}/edit', [WipSewingController::class, 'edit'])
-                    ->name('edit');
-
-                Route::put('/{sewingBatch}', [WipSewingController::class, 'update'])
-                    ->name('update');
-
-                Route::post('/{sewingBatch}/complete', [WipSewingController::class, 'complete'])
-                    ->name('complete');
+                // (opsional) hapus / batal
+                // Route::delete('/{sewingPick}', [SewingPickController::class, 'destroy'])
+                //     ->name('destroy');
             });
 
         // ==========================
-        // FINISHING
+        // SETOR JAHIT (SEWING RETURNS)
         // ==========================
+        Route::prefix('sewing-returns')
+            ->name('sewing_returns.')
+            ->group(function () {
 
-        Route::prefix('finishing')->name('finishing.')->group(function () {
+                // List dokumen setor jahit
+                Route::get('/', [SewingReturnController::class, 'index'])
+                    ->name('index');
 
-            Route::get('/', [FinishingController::class, 'index'])
-                ->name('index');
+                // Form input setor hasil jahit (OK & Reject)
+                Route::get('/create', [SewingReturnController::class, 'create'])
+                    ->name('create');
 
-            Route::get('/create-from-sewing/{sewingBatch}', [FinishingController::class, 'createFromSewing'])
-                ->name('create_from_sewing');
+                // Simpan setor jahit + mutasi stok (OK & Reject)
+                Route::post('/', [SewingReturnController::class, 'store'])
+                    ->name('store');
 
-            Route::post('/create-from-sewing/{sewingBatch}', [FinishingController::class, 'storeFromSewing'])
-                ->name('store_from_sewing');
+                // Detail 1 dokumen setor jahit
+                Route::get('/{sewingReturn}', [SewingReturnController::class, 'show'])
+                    ->name('show');
 
-            Route::get('/{finishingBatch}/edit', [FinishingController::class, 'edit'])
-                ->name('edit');
+                Route::post('{sewingReturn}/post', [SewingReturnController::class, 'post'])
+                    ->name('post');
+                // (opsional) batal / hapus
+                // Route::delete('/{sewingReturn}', [SewingReturnController::class, 'destroy'])
+                //     ->name('destroy');
+            });
 
-            // Route::put('/{finishingBatch}', [FinishingController::class, 'update'])
-            //     ->name('update');
-
-            Route::put('/{finishingBatch}', [FinishingController::class, 'update'])->name('update');
-
-            Route::post('/{finishing}/complete', [FinishingController::class, 'complete'])
-                ->name('complete');
-
-            Route::get('/{finishingBatch}', [FinishingController::class, 'show'])
-                ->name('show');
-        });
+        // ==========================
+        // REPORT SEWING
+        // ==========================
+        Route::get('sewing-report/sisa-operator', [SewingReportController::class, 'sisaPerOperator'])
+            ->name('sewing_report.sisa_operator');
 
     });
 
+});
+
+Route::prefix('production/sewing-report')
+    ->name('production.sewing_report.')
+    ->group(function () {
+        Route::get('/operators', [SewingReportController::class, 'operatorBalance'])
+            ->name('operator_balance');
+
+        Route::get('/operators/export', [SewingReportController::class, 'exportOperatorBalance'])
+            ->name('operator_balance_export');
+
+        Route::get('/operators/{operator}', [SewingReportController::class, 'operatorDetail'])
+            ->name('operator_detail');
+
+        Route::get('/operators/{operator}/export', [SewingReportController::class, 'exportOperatorDetail'])
+            ->name('operator_detail_export');
+
+    });
+
+Route::prefix('production')->name('production.')->group(function () {
+
+    // ...
+
+    Route::prefix('finishing')->name('finishing.')->group(function () {
+        Route::get('/', [FinishingController::class, 'index'])->name('index');
+        Route::get('/create', [FinishingController::class, 'create'])->name('create');
+        Route::post('/', [FinishingController::class, 'store'])->name('store');
+        Route::get('/{finishingJob}', [FinishingController::class, 'show'])->name('show');
+        Route::post('/{finishingJob}/post', [FinishingController::class, 'post'])->name('post');
+    });
+});
+
+Route::middleware(['auth', 'role:admin,finishing'])->group(function () {
+    Route::prefix('production')->name('production.')->group(function () {
+
+        Route::prefix('packing-jobs')->name('packing_jobs.')->group(function () {
+            Route::get('/', [PackingJobController::class, 'index'])->name('index');
+            Route::get('/create', [PackingJobController::class, 'create'])->name('create');
+            Route::post('/', [PackingJobController::class, 'store'])->name('store');
+            Route::get('/{packingJob}', [PackingJobController::class, 'show'])->name('show');
+            Route::post('/{packingJob}/post', [PackingJobController::class, 'post'])->name('post');
+        });
+
+    });
 });

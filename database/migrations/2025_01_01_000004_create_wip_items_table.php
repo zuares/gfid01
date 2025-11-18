@@ -38,6 +38,20 @@ return new class extends Migration
 
             $t->foreign('warehouse_id')
                 ->references('id')->on('warehouses');
+
+            $t->unsignedBigInteger('cutting_bundle_id')->nullable()->after('production_batch_id');
+            $t->unsignedBigInteger('lot_id')->nullable()->after('cutting_bundle_id');
+
+            // index pendukung
+            $t->index(['warehouse_id', 'stage', 'status'], 'wip_items_wh_stage_status_idx');
+
+            // foreign key (optional, sesuaikan nama tabel & kolom)
+            $t->foreign('cutting_bundle_id')
+                ->references('id')->on('cutting_bundles')
+                ->nullOnDelete();
+
+            $t->foreign('lot_id')
+                ->references('id')->on('lots');
         });
     }
 

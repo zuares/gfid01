@@ -27,7 +27,7 @@
         {{-- ===================== --}}
         <div class="section">Produksi</div>
 
-        {{-- External Transfer (admin only sesuai middleware inventory) --}}
+        {{-- External Transfer (admin only) --}}
         @if (auth()->user()->hasRole('admin'))
             <a class="nav-link {{ request()->routeIs('inventory.external_transfers.*') ? 'active' : '' }}"
                 href="{{ route('inventory.external_transfers.index') }}">
@@ -35,7 +35,7 @@
             </a>
         @endif
 
-        {{-- Vendor Cutting (cutting + admin sesuai middleware production) --}}
+        {{-- Vendor Cutting (cutting/admin) --}}
         @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('cutting'))
             <a class="nav-link {{ request()->routeIs('production.vendor_cutting.*') ? 'active' : '' }}"
                 href="{{ route('production.vendor_cutting.index') }}">
@@ -43,7 +43,7 @@
             </a>
         @endif
 
-        {{-- QC Cutting (juga cutting + admin, karena satu middleware group) --}}
+        {{-- QC Cutting (cutting/admin) --}}
         @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('cutting'))
             <a class="nav-link {{ request()->routeIs('production.wip_cutting_qc.*') ? 'active' : '' }}"
                 href="{{ route('production.wip_cutting_qc.index') }}">
@@ -51,19 +51,43 @@
             </a>
         @endif
 
-        {{-- WIP Sewing (nama route: production.wip_sewing.*) --}}
-        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('cutting'))
-            <a class="nav-link {{ request()->routeIs('production.wip_sewing.*') ? 'active' : '' }}"
-                href="{{ route('production.wip_sewing.index') }}">
-                <i class="bi bi-scissors"></i><span>WIP Sewing</span>
+        {{-- Ambil Jahit (sewing/admin/owner) --}}
+        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('sewing') || auth()->user()->hasRole('owner'))
+            <a class="nav-link {{ request()->routeIs('production.sewing_picks.*') ? 'active' : '' }}"
+                href="{{ route('production.sewing_picks.index') }}">
+                <i class="bi bi-truck"></i><span>Ambil Jahit</span>
             </a>
         @endif
 
-        {{-- Finishing (nama route: production.finishing.*) --}}
-        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('cutting'))
+        {{-- Setor Jahit (sewing/admin/owner) --}}
+        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('sewing') || auth()->user()->hasRole('owner'))
+            <a class="nav-link {{ request()->routeIs('production.sewing_returns.*') ? 'active' : '' }}"
+                href="{{ route('production.sewing_returns.index') }}">
+                <i class="bi bi-box-arrow-in-left"></i><span>Setor Jahit</span>
+            </a>
+        @endif
+
+        {{-- Finishing (finishing/admin/owner) --}}
+        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('finishing') || auth()->user()->hasRole('owner'))
             <a class="nav-link {{ request()->routeIs('production.finishing.*') ? 'active' : '' }}"
                 href="{{ route('production.finishing.index') }}">
                 <i class="bi bi-check2-square"></i><span>Finishing</span>
+            </a>
+        @endif
+
+        {{-- Packing (finishing/admin/owner) --}}
+        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('finishing') || auth()->user()->hasRole('owner'))
+            <a class="nav-link {{ request()->routeIs('production.packing_jobs.*') ? 'active' : '' }}"
+                href="{{ route('production.packing_jobs.index') }}">
+                <i class="bi bi-box-seam"></i><span>Packing</span>
+            </a>
+        @endif
+
+        {{-- Report Sisa Jahit (sewing/admin/owner) --}}
+        @if (auth()->user()->hasRole('admin') || auth()->user()->hasRole('sewing') || auth()->user()->hasRole('owner'))
+            <a class="nav-link {{ request()->routeIs('production.sewing_report.*') ? 'active' : '' }}"
+                href="{{ route('production.sewing_report.operator_balance') }}">
+                <i class="bi bi-people"></i><span>Report Sisa Jahit</span>
             </a>
         @endif
 
@@ -72,13 +96,11 @@
         <div class="section">Inventory</div>
 
         @if (auth()->user()->hasRole('admin'))
-            {{-- Mutasi --}}
             <a class="nav-link {{ request()->is('inventory/mutations*') ? 'active' : '' }}"
                 href="{{ url('/inventory/mutations') }}">
                 <i class="bi bi-arrow-left-right"></i><span>Mutasi</span>
             </a>
 
-            {{-- Stok --}}
             <a class="nav-link {{ request()->is('inventory/stocks*') ? 'active' : '' }}"
                 href="{{ url('/inventory/stocks') }}">
                 <i class="bi bi-box-seam"></i><span>Stok Barang</span>

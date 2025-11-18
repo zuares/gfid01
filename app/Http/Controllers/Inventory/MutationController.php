@@ -17,13 +17,13 @@ class MutationController extends Controller
         $data = $r->validate([
             'item_code' => ['nullable', 'string', 'max:64'],
             'warehouse' => ['nullable', 'integer', 'min:1'],
-            'type' => ['nullable', 'in:PURCHASE_IN,CUTTING_USE,PRODUCTION_IN,TRANSFER_OUT,TRANSFER_IN,ADJUSTMENT,SALE_OUT'],
+            // ❗ type sekarang bebas string, supaya support type baru dari modul lain
+            'type' => ['nullable', 'string', 'max:64'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date'],
             'q' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:10', 'max:200'],
             'sort' => ['nullable', 'in:date_desc,date_asc,created_desc,created_asc'],
-
         ]);
 
         $itemCode = $data['item_code'] ?? null;
@@ -42,15 +42,18 @@ class MutationController extends Controller
             ->leftJoin('lots as l', 'm.lot_id', '=', 'l.id')
             ->leftJoin('items as it', 'l.item_id', '=', 'it.id')
             ->when($itemCode, function ($w) use ($itemCode, $hasItemCodeCol) {
-                // filter efisien ke kolom yang tersedia
-                if ($hasItemCodeCol) {
-                    return $w->where('m.item_code', $itemCode)
-                        ->orWhere(function ($x) use ($itemCode) {
-                            $x->whereNull('m.item_code')
-                                ->where('it.code', $itemCode);
-                        });
-                }
-                return $w->where('it.code', $itemCode);
+                // Dibungkus dalam group supaya OR tidak "kabur" dari filter lain
+                $w->where(function ($q) use ($itemCode, $hasItemCodeCol) {
+                    if ($hasItemCodeCol) {
+                        $q->where('m.item_code', $itemCode)
+                            ->orWhere(function ($x) use ($itemCode) {
+                                $x->whereNull('m.item_code')
+                                    ->where('it.code', $itemCode);
+                            });
+                    } else {
+                        $q->where('it.code', $itemCode);
+                    }
+                });
             })
             ->when($warehouse, fn($w) => $w->where('m.warehouse_id', $warehouse))
             ->when($type, fn($w) => $w->where('m.type', $type))
@@ -86,13 +89,17 @@ class MutationController extends Controller
         ]);
 
         // ==== SORT ====
-        // $listQuery = match ($sort) {
-        //     'date_asc' => $listQuery->orderBy('m.date')->orderBy('m.id'),
-        //     'created_asc' => $listQuery->orderBy('m.created_at')->orderBy('m.id'),
-        //     'created_desc' => $listQuery->orderByDesc('m.created_at')->orderByDesc('m.id'),
-        //     default => $listQuery->orderByDesc('m.date')->orderByDesc('m.id'),
-        // };
-        // Ganti total sorting menjadi hanya created_at
+        // Kalau mau aktifkan lagi opsi sort lain, tinggal un-comment blok match ini
+        /*
+        $listQuery = match ($sort) {
+        'date_asc' => $listQuery->orderBy('m.date')->orderBy('m.id'),
+        'created_asc' => $listQuery->orderBy('m.created_at')->orderBy('m.id'),
+        'created_desc' => $listQuery->orderByDesc('m.created_at')->orderByDesc('m.id'),
+        default => $listQuery->orderByDesc('m.date')->orderByDesc('m.id'),
+        };
+         */
+
+        // Versi yang dipakai sekarang: pure berdasarkan created_at terbaru
         $listQuery->orderByDesc('m.created_at')->orderByDesc('m.id');
 
         // ==== PAGINATION ====
@@ -103,7 +110,12 @@ class MutationController extends Controller
         foreach ($rows as $row) {
             $dateKey = \Carbon\Carbon::parse($row->date)->format('Y-m-d');
             if (!isset($grouped[$dateKey])) {
-                $grouped[$dateKey] = ['items' => [], 'sum_in' => 0, 'sum_out' => 0, 'net' => 0];
+                $grouped[$dateKey] = [
+                    'items' => [],
+                    'sum_in' => 0,
+                    'sum_out' => 0,
+                    'net' => 0,
+                ];
             }
             $grouped[$dateKey]['items'][] = $row;
             $grouped[$dateKey]['sum_in'] += (float) ($row->qty_in ?? 0);
@@ -116,7 +128,9 @@ class MutationController extends Controller
         ? DB::table('items')->where('code', $itemCode)->first(['code', 'name', 'uom'])
         : null;
 
-        $warehouses = DB::table('warehouses')->orderBy('name')->get(['id', 'code', 'name']);
+        $warehouses = DB::table('warehouses')
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
 
         $warehouseName = null;
         if ($warehouse) {
@@ -124,8 +138,14 @@ class MutationController extends Controller
             if ($wh) {
                 $warehouseName = "{$wh->code} — {$wh->name}";
             }
-
         }
+
+        // 🔹 Ambil daftar type yang tersedia di DB (buat dropdown filter di view)
+        $availableTypes = InventoryMutation::query()
+            ->select('type')
+            ->distinct()
+            ->orderBy('type')
+            ->pluck('type');
 
         return view('inventory.mutations.index', [
             'rows' => $rows,
@@ -135,6 +155,7 @@ class MutationController extends Controller
             'warehouseId' => $warehouse, // untuk reuse di link
             'warehouseName' => $warehouseName,
             'warehouses' => $warehouses,
+            'availableTypes' => $availableTypes,
             'totalIn' => $totalIn,
             'totalOut' => $totalOut,
             'sort' => $sort,
@@ -157,9 +178,12 @@ class MutationController extends Controller
             ->findOrFail($id);
 
         $prev = InventoryMutation::where('id', '<', $mutation->id)
-            ->orderByDesc('id')->first(['id']);
+            ->orderByDesc('id')
+            ->first(['id']);
+
         $next = InventoryMutation::where('id', '>', $mutation->id)
-            ->orderBy('id')->first(['id']);
+            ->orderBy('id')
+            ->first(['id']);
 
         // Sumber invoice pembelian (jika ada)
         $purchaseSource = null;
@@ -184,17 +208,23 @@ class MutationController extends Controller
                 ->get(['id', 'warehouse_id', 'type']);
 
             if ($pair->isNotEmpty()) {
+                $outRow = $pair->firstWhere('type', 'TRANSFER_OUT');
+                $inRow = $pair->firstWhere('type', 'TRANSFER_IN');
+
+                // Kalau yang sekarang IN, from = OUT partner, to = gudang sekarang
+                // Kalau yang sekarang OUT, from = gudang sekarang, to = IN partner
                 $from = $mutation->type === 'TRANSFER_IN'
-                ? $pair->firstWhere('type', 'TRANSFER_OUT')?->warehouse?->name
-                : $mutation->warehouse?->name;
+                ? ($outRow?->warehouse?->name ?? $mutation->warehouse?->name)
+                : ($mutation->warehouse?->name ?? '—');
 
                 $to = $mutation->type === 'TRANSFER_OUT'
-                ? $pair->firstWhere('type', 'TRANSFER_IN')?->warehouse?->name
-                : $mutation->warehouse?->name;
+                ? ($inRow?->warehouse?->name ?? $mutation->warehouse?->name)
+                : ($mutation->warehouse?->name ?? '—');
 
-                if ($from || $to) {
-                    $transferPartner = ['from' => $from ?? '—', 'to' => $to ?? '—'];
-                }
+                $transferPartner = [
+                    'from' => $from ?? '—',
+                    'to' => $to ?? '—',
+                ];
             }
         }
 
@@ -203,13 +233,19 @@ class MutationController extends Controller
         if ($mutation->lot_id) {
             $lotHistory = InventoryMutation::query()
                 ->where('lot_id', $mutation->lot_id)
-                ->orderBy('date')->orderBy('id')
+                ->orderBy('date')
+                ->orderBy('id')
                 ->with('warehouse:id,name,code')
                 ->get(['id', 'warehouse_id', 'type', 'qty_in', 'qty_out', 'unit', 'date', 'lot_id']);
         }
 
         return view('inventory.mutations.show', compact(
-            'mutation', 'prev', 'next', 'purchaseSource', 'transferPartner', 'lotHistory'
+            'mutation',
+            'prev',
+            'next',
+            'purchaseSource',
+            'transferPartner',
+            'lotHistory'
         ));
     }
 }

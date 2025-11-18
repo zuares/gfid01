@@ -147,6 +147,7 @@ class ExternalTransferController extends Controller
 
         return "{$proc3}-EXT-{$op3}";
     }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -168,7 +169,10 @@ class ExternalTransferController extends Controller
 
         $user = Auth::user();
 
-        DB::transaction(function () use ($validated, $user) {
+        // 🔹 Ambil service sekali di luar transaction
+        $inventory = app(InventoryService::class);
+
+        DB::transaction(function () use ($validated, $user, $inventory) {
 
             $date = $validated['date'];
             $process = $validated['process'];
@@ -178,7 +182,6 @@ class ExternalTransferController extends Controller
             $linesInput = $validated['lines'];
 
             // ==== 1. Tentukan / buat gudang tujuan berdasarkan process + operator ====
-            // contoh: cutting + MRF -> CUT-EXT-MRF
             $toWarehouseCode = $this->generateAutoToWarehouseCode($process, $operatorCode);
 
             /** @var Warehouse $toWarehouse */
@@ -186,7 +189,6 @@ class ExternalTransferController extends Controller
                 ['code' => $toWarehouseCode],
                 [
                     'name' => $toWarehouseCode . ' (Vendor)',
-                    // kalau kamu punya kolom type, pakai 'external' / 'vendor'
                     'type' => 'external',
                 ]
             );
@@ -201,12 +203,9 @@ class ExternalTransferController extends Controller
                 ->orderBy('code', 'desc')
                 ->first();
 
-            if ($last) {
-                $lastNumber = (int) substr($last->code, strlen($prefix));
-                $nextNumber = $lastNumber + 1;
-            } else {
-                $nextNumber = 1;
-            }
+            $nextNumber = $last
+            ? ((int) substr($last->code, strlen($prefix))) + 1
+            : 1;
 
             $code = $prefix . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
 
@@ -219,14 +218,13 @@ class ExternalTransferController extends Controller
                 'operator_code' => $operatorCode,
                 'from_warehouse_id' => $fromWarehouse,
                 'to_warehouse_id' => $toWarehouseId,
-                'status' => 'sent', // sesuai teks di Blade
+                'status' => 'sent',
                 'notes' => $notes,
                 'created_by' => $user?->id,
             ]);
 
             // ==== 4. Simpan detail per LOT + mutasi stok per LOT ====
             foreach ($linesInput as $line) {
-                // extra safety: skip kalau qty <= 0
                 $qty = (float) ($line['qty'] ?? 0);
                 if ($qty <= 0) {
                     continue;
@@ -248,19 +246,18 @@ class ExternalTransferController extends Controller
                     'notes' => $line['notes'] ?? null,
                 ]);
 
-                // 4b. mutasi stok LOT: from -> to
-                InventoryService::transferLot([
-                    'from_warehouse_id' => $fromWarehouse,
-                    'to_warehouse_id' => $toWarehouseId,
-                    'lot_id' => $lot->id,
-                    'item_id' => $lot->item_id,
-                    'item_code' => $lot->item->code,
-                    'unit' => $uom,
-                    'qty' => $qty,
-                    'date' => $date,
-                    'ref_code' => $code,
-                    'category' => 'rawmaterial', // cutting/sewing/finishing masih pakai kain
-                ]);
+                // 4b. mutasi stok LOT: from -> to via InventoryService->transfer()
+                $inventory->transfer(
+                    fromWarehouseId: $fromWarehouse,
+                    toWarehouseId: $toWarehouseId,
+                    lotId: $lot->id,
+                    qty: $qty,
+                    unit: $uom,
+                    refCode: $code,
+                    note: "External transfer {$process} ke {$operatorCode}",
+                    date: $date,
+                    category: 'rawmaterial', // kirim kain ke vendor
+                );
             }
         });
 

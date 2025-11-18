@@ -1,6 +1,5 @@
 @extends('layouts.app')
-
-@section('title', 'Finishing – Dari Hasil Sewing')
+@section('title', 'Produksi • Finishing')
 
 @push('head')
     <style>
@@ -15,38 +14,61 @@
             border-radius: 14px;
         }
 
-        th.sticky {
-            position: sticky;
-            top: 0;
-            background: var(--card);
-            z-index: 1;
-        }
-
         .mono {
             font-variant-numeric: tabular-nums;
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono";
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.1rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-draft {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-posted {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .table thead th {
+            position: sticky;
+            top: 0;
+            background: var(--bg, #fff);
+            z-index: 1;
         }
     </style>
 @endpush
 
 @section('content')
     <div class="page-wrap py-3">
-
-        <div class="d-flex align-items-center mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
                 <h1 class="h4 mb-0">Finishing</h1>
-                <div class="text-muted small">
-                    Daftar Sewing Batch yang sudah selesai dan siap diproses Finishing.
-                </div>
+                <small class="text-muted">Daftar dokumen finishing dari WIP-FIN ke FG.</small>
             </div>
+            <a href="{{ route('production.finishing.create') }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-plus-circle"></i> Tambah Finishing
+            </a>
         </div>
 
-        {{-- Flash message --}}
         @if (session('success'))
-            <div class="alert alert-success py-2">{{ session('success') }}</div>
+            <div class="alert alert-success py-2">
+                {{ session('success') }}
+            </div>
         @endif
-        @if (session('error'))
-            <div class="alert alert-danger py-2">{{ session('error') }}</div>
+
+        @if ($errors->any())
+            <div class="alert alert-danger py-2">
+                {{ $errors->first() }}
+            </div>
         @endif
 
         <div class="card p-3">
@@ -54,65 +76,61 @@
                 <table class="table table-sm align-middle mb-0">
                     <thead>
                         <tr>
-                            <th class="sticky">Sewing Batch</th>
-                            <th class="sticky">Cutting Batch</th>
-                            <th class="sticky text-end">Total OK Sewing</th>
-                            <th class="sticky text-center">Finishing</th>
-                            <th class="sticky text-end">Aksi</th>
+                            <th style="width: 120px;">Kode</th>
+                            <th style="width: 120px;">Tanggal</th>
+                            <th>Operator</th>
+                            <th>Gudang</th>
+                            <th>Status</th>
+                            <th style="width: 80px;"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse ($sewingDone as $sewing)
-                            @php
-                                $finishing = $sewing->finishingBatch;
-                            @endphp
+                        @forelse ($jobs as $job)
                             <tr>
-                                <td class="mono">{{ $sewing->code }}</td>
-                                <td class="mono">{{ $sewing->productionBatch?->code }}</td>
-                                <td class="text-end mono">{{ $sewing->total_qty_ok }}</td>
-                                <td class="text-center">
-                                    @if ($finishing)
-                                        @if ($finishing->status === 'done')
-                                            <span class="badge bg-success">DONE</span>
-                                        @else
-                                            <span class="badge bg-warning">DRAFT</span>
-                                        @endif
-                                    @else
-                                        <span class="text-muted small">Belum dibuat</span>
-                                    @endif
+                                <td class="mono">
+                                    <a href="{{ route('production.finishing.show', $job->id) }}">
+                                        {{ $job->code }}
+                                    </a>
+                                </td>
+                                <td class="mono">
+                                    {{ $job->date instanceof \Carbon\Carbon ? $job->date->format('Y-m-d') : $job->date }}
+                                </td>
+                                <td>
+                                    {{ optional($job->operator)->name ?? '-' }}
+                                </td>
+                                <td class="small">
+                                    <div><strong>From:</strong> {{ optional($job->fromWarehouse)->code ?? '-' }}</div>
+                                    <div><strong>To:</strong> {{ optional($job->toWarehouse)->code ?? '-' }}</div>
+                                </td>
+                                <td>
+                                    @php
+                                        $status = $job->status;
+                                    @endphp
+                                    <span class="status-chip {{ $status === 'posted' ? 'status-posted' : 'status-draft' }}">
+                                        {{ strtoupper($status) }}
+                                    </span>
                                 </td>
                                 <td class="text-end">
-                                    @if (!$finishing)
-                                        <a href="{{ route('production.finishing.create_from_sewing', $sewing) }}"
-                                            class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-plus-circle me-1"></i>
-                                            Buat Finishing Batch
-                                        </a>
-                                    @else
-                                        <a href="{{ route('production.finishing.edit', $finishing) }}"
-                                            class="btn btn-sm btn-outline-secondary me-1">
-                                            <i class="bi bi-pencil-square me-1"></i>
-                                            Input Finishing
-                                        </a>
-                                        <a href="{{ route('production.finishing.show', $finishing) }}"
-                                            class="btn btn-sm btn-outline-light">
-                                            <i class="bi bi-eye me-1"></i>
-                                            Lihat
-                                        </a>
-                                    @endif
+                                    <a href="{{ route('production.finishing.show', $job->id) }}"
+                                        class="btn btn-outline-secondary btn-sm">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-3">
-                                    Belum ada Sewing Batch dengan status <code>done</code>.
+                                <td colspan="6" class="text-center text-muted py-3">
+                                    Belum ada dokumen finishing.
                                 </td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
-        </div>
 
+            <div class="mt-3">
+                {{ $jobs->links() }}
+            </div>
+        </div>
     </div>
 @endsection

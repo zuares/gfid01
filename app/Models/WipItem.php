@@ -21,6 +21,8 @@ class WipItem extends Model
         'warehouse_id',
         'status',
         'notes',
+        'cutting_bundle_id',
+        'lot_id',
     ];
 
     protected $casts = [

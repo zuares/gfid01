@@ -3,218 +3,286 @@
 namespace App\Http\Controllers\Production;
 
 use App\Http\Controllers\Controller;
-use App\Models\FinishingBatch;
-use App\Models\FinishingBundleLine;
-use App\Models\SewingBatch;
+use App\Models\Employee;
+use App\Models\FinishingJob;
+use App\Models\FinishingJobLine;
+use App\Models\InventoryStock;
+use App\Models\Warehouse;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class FinishingController extends Controller
 {
     public function index()
     {
-        $sewingDone = SewingBatch::where('status', 'done')
-            ->with('productionBatch')
-            ->get();
-        return view('production.finishing.index', compact('sewingDone'));
+        $jobs = FinishingJob::with('operator')
+            ->orderByDesc('date')
+            ->orderByDesc('id')
+            ->paginate(20);
+
+        return view('production.finishing.index', [
+            'jobs' => $jobs,
+        ]);
     }
 
-    public function show(FinishingBatch $finishingBatch)
+    /**
+     * Create: ambil stok dari WIP-FIN sebagai sumber finishing
+     */
+    public function create(Request $request)
     {
-        $finishingBatch->load([
-            'sewingBatch.productionBatch',
-            'employee',
-            'lines.sewingLine.cuttingBundle.item',
+        // kalau finishing ada operator, bisa pakai role 'finishing' / 'qc' / 'sewing' sesuai kebutuhan
+        $operators = Employee::orderBy('name')->get();
+
+        // Gudang sumber: WIP-FIN
+        $fromWarehouse = Warehouse::firstOrCreate(
+            ['code' => 'WIP-FIN'],
+            ['name' => 'WIP Finishing', 'type' => 'wip']
+        );
+
+        // Gudang tujuan: FG
+        $toWarehouse = Warehouse::firstOrCreate(
+            ['code' => 'FG'],
+            ['name' => 'Finished Goods', 'type' => 'fg']
+        );
+
+        // Ambil stok WIP-FIN yang qty > 0
+        $stocks = InventoryStock::query()
+            ->where('warehouse_id', $fromWarehouse->id)
+            ->where('qty', '>', 0)
+            ->with(['item', 'lot'])
+            ->orderBy('item_code')
+            ->get();
+
+        return view('production.finishing.create', [
+            'operators' => $operators,
+            'fromWarehouse' => $fromWarehouse,
+            'toWarehouse' => $toWarehouse,
+            'stocks' => $stocks,
+        ]);
+    }
+
+    /**
+     * Store: simpan job finishing (DRAFT)
+     */
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'date' => ['required', 'date'],
+            'operator_id' => ['nullable', 'exists:employees,id'],
+            'notes' => ['nullable', 'string', 'max:500'],
+
+            'from_warehouse_id' => ['required', 'exists:warehouses,id'],
+            'to_warehouse_id' => ['required', 'exists:warehouses,id'],
+
+            'lines' => ['required', 'array'],
+            'lines.*.stock_id' => ['required', 'integer', 'exists:inventory_stocks,id'],
+            'lines.*.qty_source' => ['required', 'numeric', 'min:0'],
+            'lines.*.qty_ok' => ['required', 'numeric', 'min:0'],
+            'lines.*.qty_reject' => ['required', 'numeric', 'min:0'],
+            'lines.*.unit' => ['required', 'string', 'max:16'],
+            'lines.*.notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        // dd($finishingBatch); // boleh dipakai debug, tapi nanti dihapus kalau sudah ok
+        $linesInput = collect($data['lines'])
+            ->filter(function ($line) {
+                return ($line['qty_ok'] ?? 0) > 0 || ($line['qty_reject'] ?? 0) > 0;
+            })
+            ->values();
 
-        return view('production.finishing.show', compact('finishingBatch'));
-    }
-
-    public function createFromSewing(SewingBatch $sewingBatch)
-    {
-        if ($sewingBatch->status !== 'done') {
-            return back()->with('error', 'Sewing belum selesai.');
+        if ($linesInput->isEmpty()) {
+            return back()->withErrors(['msg' => 'Isi minimal satu baris qty OK / Reject.'])->withInput();
         }
 
-        $sewingBatch->load('lines.sewingBatch', 'lines.cuttingBundle');
+        // Ambil stok WIP-FIN dari DB untuk validasi qty_source tidak > stok
+        $stockIds = $linesInput->pluck('stock_id')->all();
 
-        $employee = Auth::user()->employee;
-        $code = $this->generateCode($employee?->code);
+        $stocks = InventoryStock::query()
+            ->whereIn('id', $stockIds)
+            ->get()
+            ->keyBy('id');
 
-        return view('production.finishing.create_from_sewing', compact('sewingBatch', 'code', 'employee'));
-    }
+        $errors = [];
 
-    public function storeFromSewing(Request $request, SewingBatch $sewingBatch)
-    {
-        // dd($sewingBatch);
-        if ($sewingBatch->status !== 'done') {
-            return back()->with('error', 'Sewing belum selesai.');
+        foreach ($linesInput as $idx => $line) {
+            $stock = $stocks->get($line['stock_id']);
+
+            if (!$stock) {
+                $errors["lines.$idx.stock_id"] = 'Stok WIP-FIN tidak ditemukan.';
+                continue;
+            }
+
+            $qtySource = (float) $line['qty_source'];
+            $qtyOk = (float) $line['qty_ok'];
+            $qtyReject = (float) $line['qty_reject'];
+            $totalOut = $qtyOk + $qtyReject;
+
+            if ($totalOut <= 0) {
+                $errors["lines.$idx.qty_ok"] = 'Qty OK + Reject harus lebih dari 0.';
+                continue;
+            }
+
+            if ($totalOut > $qtySource + 1e-6) {
+                $errors["lines.$idx.qty_ok"] =
+                    "Qty OK + Reject ({$totalOut}) tidak boleh melebihi Qty Sumber ({$qtySource}).";
+            }
+
+            if ($qtySource > $stock->qty + 1e-6) {
+                $errors["lines.$idx.qty_source"] =
+                    "Qty Sumber ({$qtySource}) tidak boleh melebihi stok WIP-FIN ({$stock->qty}).";
+            }
+        }
+
+        if (!empty($errors)) {
+            return back()->withErrors($errors)->withInput();
         }
 
         DB::beginTransaction();
 
         try {
-            $employee = Auth::user()->employee;
-            $code = $this->generateCode($employee?->code);
+            $date = $data['date'];
 
-            $totalInput = $sewingBatch->lines->sum('qty_ok');
+            // Generate kode: FIN-YYMMDD-###
+            $running = FinishingJob::whereDate('date', $date)->count() + 1;
+            $code = 'FIN-' . date('ymd', strtotime($date)) . '-' . str_pad($running, 3, '0', STR_PAD_LEFT);
 
-            $finishing = FinishingBatch::create([
+            $job = FinishingJob::create([
                 'code' => $code,
-                'sewing_batch_id' => $sewingBatch->id,
-                'employee_id' => $employee?->id,
+                'date' => $date,
+                'operator_id' => $data['operator_id'] ?? null,
+                'from_warehouse_id' => $data['from_warehouse_id'],
+                'to_warehouse_id' => $data['to_warehouse_id'],
+                'notes' => $data['notes'] ?? null,
                 'status' => 'draft',
-                'total_qty_input' => $totalInput,
-                'total_qty_ok' => 0,
-                'total_qty_reject' => 0,
-                'started_at' => now(),
             ]);
 
-            foreach ($sewingBatch->lines as $line) {
-                if ($line->qty_ok > 0) {
-                    FinishingBundleLine::create([
-                        'finishing_batch_id' => $finishing->id,
-                        'sewing_bundle_line_id' => $line->id,
-                        'qty_input' => $line->qty_ok,
-                    ]);
-                }
+            foreach ($linesInput as $line) {
+                $stock = $stocks->get($line['stock_id']);
+
+                FinishingJobLine::create([
+                    'finishing_job_id' => $job->id,
+                    'lot_id' => $stock->lot_id,
+                    'item_id' => $stock->item_id,
+                    'item_code' => $stock->item_code,
+                    'qty_source' => $line['qty_source'],
+                    'qty_ok' => $line['qty_ok'],
+                    'qty_reject' => $line['qty_reject'],
+                    'unit' => $line['unit'],
+                    'notes' => $line['notes'] ?? null,
+                ]);
             }
 
             DB::commit();
 
-            return redirect()->route('production.finishing.edit', $finishing)
-                ->with('success', 'Finishing Batch berhasil dibuat.');
+            return redirect()
+                ->route('production.finishing.show', $job->id)
+                ->with('success', 'Finishing disimpan sebagai DRAFT.');
+
         } catch (\Throwable $e) {
             DB::rollBack();
-            return back()->with('error', $e->getMessage());
+            report($e);
+
+            return back()
+                ->withErrors(['msg' => 'Gagal menyimpan finishing: ' . $e->getMessage()])
+                ->withInput();
         }
     }
 
-    public function edit(FinishingBatch $finishingBatch)
+    public function show(FinishingJob $finishingJob)
     {
-        $finishingBatch->load('sewingBatch.productionBatch', 'lines.sewingLine.cuttingBundle', 'employee');
-        // dd($finishingBatch);
+        $finishingJob->load(['operator', 'fromWarehouse', 'toWarehouse', 'lines.item', 'lines.lot']);
 
-        return view('production.finishing.edit', [
-            'finishingBatch' => $finishingBatch,
+        $totalOk = $finishingJob->lines->sum('qty_ok');
+        $totalReject = $finishingJob->lines->sum('qty_reject');
+        $totalAll = $totalOk + $totalReject;
+
+        return view('production.finishing.show', [
+            'job' => $finishingJob,
+            'totals' => [
+                'ok' => $totalOk,
+                'reject' => $totalReject,
+                'all' => $totalAll,
+            ],
         ]);
     }
 
-    public function update(Request $request, FinishingBatch $finishingBatch)
+    /**
+     * POSTING Finishing:
+     * - keluar stok dari WIP-FIN (qty_source)
+     * - masuk stok FG (qty_ok)
+     * - reject ke gudang REJECT / WIP-REJECT (opsional)
+     */
+    public function post(Request $request, FinishingJob $finishingJob)
     {
-        // $finishingBatch->load('lines.bundle');
-        // $finishingBatch->load('lines.cuttingBundle');
-        $finishingBatch->load('lines.sewingLine.cuttingBundle');
+        $finishingJob->load(['lines']);
 
-        $validated = $request->validate([
-            'lines' => ['required', 'array'],
-            'lines.*.id' => ['required', 'integer', 'exists:finishing_bundle_lines,id'],
-            'lines.*.qty_ok' => ['required', 'integer', 'min:0'],
-            'lines.*.note' => ['nullable', 'string', 'max:255'],
-        ]);
-
-        $linesInput = $validated['lines'];
-
-        // Validasi: qty_ok <= qty_input per line
-        foreach ($linesInput as $index => $input) {
-            $lineId = $input['id'];
-
-            /** @var FinishingLine|null $line */
-            $line = $finishingBatch->lines->firstWhere('id', $lineId);
-
-            if (!$line) {
-                return back()
-                    ->withInput()
-                    ->withErrors([
-                        "lines.$index.id" => "Data line tidak valid untuk batch finishing ini.",
-                    ]);
-            }
-
-            $qtyInput = (int) ($line->qty_input ?? 0);
-            $qtyOk = (int) $input['qty_ok'];
-
-            if ($qtyOk > $qtyInput) {
-                $bundle = $line->sewingLine->cuttingBundle ?? null;
-                $code = $bundle->code ?? $bundle->bundle_code ?? $line->id;
-
-                return back()
-                    ->withInput()
-                    ->withErrors([
-                        "lines.$index.qty_ok" =>
-                        "Qty OK untuk bundle {$code} melebihi qty input ({$qtyInput}).",
-                    ]);
-            }
-
+        if ($finishingJob->status === 'posted') {
+            return back()->withErrors(['msg' => 'Dokumen sudah diposting.']);
         }
 
-        // Simpan & hitung total
-        DB::transaction(function () use ($finishingBatch, $linesInput) {
-            $totalInput = 0;
-            $totalOk = 0;
-            $totalReject = 0;
+        if ($finishingJob->lines->isEmpty()) {
+            return back()->withErrors(['msg' => 'Tidak ada detail finishing untuk diposting.']);
+        }
 
-            foreach ($linesInput as $index => $input) {
-                $lineId = $input['id'];
+        DB::beginTransaction();
 
-                /** @var FinishingLine|null $line */
-                $line = $finishingBatch->lines->firstWhere('id', $lineId);
-                if (!$line) {
-                    continue;
+        try {
+            $date = $finishingJob->date;
+            $refCode = $finishingJob->code;
+            $fromId = $finishingJob->from_warehouse_id;
+            $toId = $finishingJob->to_warehouse_id;
+
+            foreach ($finishingJob->lines as $line) {
+                // TODO: panggil InventoryService, contoh:
+                // 1) Keluarkan qty_source dari WIP-FIN
+                /*
+                InventoryService::mutate(
+                warehouseId: $fromId,
+                itemId: $line->item_id,
+                lotId: $line->lot_id,
+                qtyOut: $line->qty_source,
+                unit: $line->unit,
+                date: $date,
+                refCode: $refCode,
+                note: 'Finishing - sumber WIP-FIN'
+                );
+                 */
+
+                // 2) Masukkan qty_ok ke FG
+                /*
+                if ($line->qty_ok > 0) {
+                InventoryService::mutate(
+                warehouseId: $toId,
+                itemId: $line->item_id,
+                lotId: $line->lot_id,
+                qtyIn: $line->qty_ok,
+                unit: $line->unit,
+                date: $date,
+                refCode: $refCode,
+                note: 'Finishing OK ke FG'
+                );
                 }
+                 */
 
-                $qtyInput = (int) ($line->qty_input ?? 0);
-                $qtyOk = (int) $input['qty_ok'];
-                $qtyReject = max($qtyInput - $qtyOk, 0);
-
-                $line->qty_ok = $qtyOk;
-                $line->qty_reject = $qtyReject;
-                $line->note = $input['note'] ?? null;
-                $line->save();
-
-                $totalInput += $qtyInput;
-                $totalOk += $qtyOk;
-                $totalReject += $qtyReject;
+                // 3) Qty Reject finishing bisa diarahkan ke gudang REJECT (opsional)
             }
 
-            $finishingBatch->total_qty_input = $totalInput;
-            $finishingBatch->total_qty_ok = $totalOk;
-            $finishingBatch->total_qty_reject = $totalReject;
+            $finishingJob->status = 'posted';
+            $finishingJob->posted_at = Carbon::now();
+            $finishingJob->save();
 
-            // kalau status masih 'in_progress' atau 'draft' biarin,
-            // finished_at nanti diisi di complete()
-            $finishingBatch->save();
-        });
+            DB::commit();
 
-        return redirect()
-            ->route('production.finishing.edit', $finishingBatch)
-            ->with('success', 'Hasil finishing berhasil disimpan.');
-    }
+            return redirect()
+                ->route('production.finishing.show', $finishingJob->id)
+                ->with('success', 'Finishing berhasil diposting.');
 
-    public function complete(FinishingBatch $finishing)
-    {
-        $finishing->status = 'done';
-        $finishing->finished_at = now();
-        $finishing->save();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            report($e);
 
-        return redirect()
-            ->route('production.finishing.show', $finishing)
-            ->with('success', 'Finishing selesai.');
-    }
-
-    protected function generateCode($emp)
-    {
-        $date = now()->format('ymd');
-        $emp = $emp ?: 'EMP';
-        $prefix = "FIN-{$date}-{$emp}-";
-
-        $last = FinishingBatch::where('code', 'like', "$prefix%")
-            ->orderBy('code', 'desc')
-            ->first();
-
-        $next = $last ? intval(substr($last->code, -3)) + 1 : 1;
-        return $prefix . str_pad($next, 3, '0', STR_PAD_LEFT);
+            return back()
+                ->withErrors(['msg' => 'Gagal posting finishing: ' . $e->getMessage()]);
+        }
     }
 }

@@ -5,7 +5,14 @@ namespace App\Http\Controllers\Production;
 use App\Http\Controllers\Controller;
 use App\Models\CuttingBundle;
 use App\Models\ProductionBatch;
+use App\Models\Warehouse;
+use App\Services\InventoryService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Proses QC: mark tiap iket OK/Reject, buat/ubah WIP.
+ */
 
 class WipCuttingQcController extends Controller
 {
@@ -71,12 +78,19 @@ class WipCuttingQcController extends Controller
         return view('production.wip_cutting_qc.edit', compact('batch'));
     }
 
-    /**
-     * Proses QC: mark tiap iket OK/Reject, buat/ubah WIP.
-     */
     public function update(Request $request, ProductionBatch $batch)
     {
-        $batch->load('bundles'); // sudah eager load semua bundles di batch ini
+        // Pastikan ini batch cutting & statusnya masih boleh di-QC
+        if ($batch->stage !== 'cutting') {
+            abort(404, 'Batch ini bukan batch cutting.');
+        }
+
+        if (!in_array($batch->status, ['waiting_qc', 'qc_in_progress'], true)) {
+            abort(403, 'Batch ini tidak dalam status waiting_qc / qc_in_progress.');
+        }
+
+        // Eager load bundles di batch ini
+        $batch->load('bundles');
 
         $data = $request->validate([
             'bundles' => ['required', 'array'],
@@ -88,44 +102,101 @@ class WipCuttingQcController extends Controller
         $totalOk = 0;
         $totalReject = 0;
 
+        // 🔎 STEP 0: Validasi awal — reject tidak boleh > qty_cut
         foreach ($data['bundles'] as $row) {
             /** @var \App\Models\CuttingBundle|null $bundle */
             $bundle = $batch->bundles->firstWhere('id', $row['id']);
 
             if (!$bundle) {
-                continue; // jaga-jaga kalau id bundlenya ga ketemu
+                // kalau id bundle aneh, skip saja (atau bisa juga dijadikan error)
+                continue;
             }
 
             $qtyCut = (float) $bundle->qty_cut;
             $qtyReject = (float) $row['qty_reject'];
 
-            // VALIDASI: reject tidak boleh lebih besar dari qty_cut
             if ($qtyReject > $qtyCut) {
                 return back()
                     ->withErrors("Total reject untuk bundle {$bundle->bundle_code} melebihi qty cut ({$qtyCut}).")
                     ->withInput();
             }
-
-            $qtyOk = max($qtyCut - $qtyReject, 0);
-
-            // 🔥 INI YANG BENAR-BENAR MENGUPDATE TABEL cutting_bundles
-            $bundle->update([
-                'qty_ok' => $qtyOk,
-                'qty_reject' => $qtyReject,
-                'status' => 'qc_done',
-                'notes' => $row['qc_notes'] ?? $bundle->notes,
-            ]);
-
-            $totalOk += $qtyOk;
-            $totalReject += $qtyReject;
         }
 
-        // optional: simpan ringkasan di header batch
-        $batch->update([
-            'status' => 'qc_done',
-            'total_output_qty' => $totalOk,
-            'total_reject_qty' => $totalReject,
-        ]);
+        DB::transaction(function () use ($batch, $data, &$totalOk, &$totalReject) {
+
+            // 🔹 Gudang tujuan WIP-SEW (hasil cutting siap jahit)
+            $wipSewWarehouse = Warehouse::firstOrCreate(
+                ['code' => 'WIP-SEW'],
+                ['name' => 'WIP Siap Jahit', 'type' => 'wip']
+            );
+
+            // 🔹 Gudang asal = gudang cutting (vendor / internal)
+            $fromWarehouseId = $batch->to_warehouse_id;
+
+            // Akumulasi qty OK per LOT (agar 1 LOT cukup 1x transfer)
+            // format: [lot_id => ['qty_ok' => float, 'unit' => string]]
+            $lotSummary = [];
+
+            foreach ($data['bundles'] as $row) {
+                /** @var \App\Models\CuttingBundle|null $bundle */
+                $bundle = $batch->bundles->firstWhere('id', $row['id']);
+
+                if (!$bundle) {
+                    continue;
+                }
+
+                $qtyCut = (float) $bundle->qty_cut;
+                $qtyReject = (float) $row['qty_reject'];
+                $qtyOk = max($qtyCut - $qtyReject, 0);
+
+                // 🔥 UPDATE cutting_bundles
+                $bundle->update([
+                    'qty_ok' => $qtyOk,
+                    'qty_reject' => $qtyReject,
+                    'status' => 'qc_done',
+                    'notes' => $row['qc_notes'] ?? $bundle->notes,
+                ]);
+
+                $totalOk += $qtyOk;
+                $totalReject += $qtyReject;
+
+                if ($qtyOk > 0) {
+                    $lotId = $bundle->lot_id;
+                    $unit = $bundle->unit ?? 'pcs'; // fallback pcs kalau tidak ada
+
+                    if (!isset($lotSummary[$lotId])) {
+                        $lotSummary[$lotId] = [
+                            'qty_ok' => 0,
+                            'unit' => $unit,
+                        ];
+                    }
+
+                    $lotSummary[$lotId]['qty_ok'] += $qtyOk;
+                }
+            }
+
+            // 🔥 STEP 2: Pindahkan total OK per LOT dari gudang cutting → WIP-SEW
+            foreach ($lotSummary as $lotId => $info) {
+                InventoryService::transferCuttingToSew([
+                    'from_warehouse_id' => $fromWarehouseId, // gudang cutting (vendor/internal)
+                    'to_warehouse_id' => $wipSewWarehouse->id, // WIP-SEW
+                    'lot_id' => $lotId,
+                    'qty' => $info['qty_ok'],
+                    'unit' => $info['unit'],
+                    'ref_code' => $batch->code,
+                    'note' => 'Hasil QC Cutting OK → WIP-SEW',
+                    'date' => now()->toDateString(),
+                    'category' => 'wip',
+                ]);
+            }
+
+            // 🔷 Ringkasan di header batch
+            $batch->update([
+                'status' => 'qc_done',
+                'total_output_qty' => $totalOk,
+                'total_reject_qty' => $totalReject,
+            ]);
+        });
 
         return redirect()
             ->route('production.wip_cutting_qc.show', $batch->id)

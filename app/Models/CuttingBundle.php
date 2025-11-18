@@ -56,4 +56,9 @@ class CuttingBundle extends Model
         return $this->belongsTo(ProductionBatch::class);
     }
 
+    public function sewingProgress()
+    {
+        return $this->hasOne(SewingBundleProgress::class);
+    }
+
 }
