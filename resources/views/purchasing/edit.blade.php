@@ -24,12 +24,6 @@
             font-size: .85rem
         }
 
-        .table thead th {
-            position: sticky;
-            top: 0;
-            background: var(--card);
-        }
-
         .badge-status {
             font-size: .75rem;
             letter-spacing: .02em
@@ -41,6 +35,139 @@
             padding: .25rem .6rem;
             font-size: .85rem;
         }
+
+        /* === CARD ITEM LINES === */
+        .line-card {
+            background: var(--card);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: .6rem .75rem;
+            margin-bottom: .6rem;
+        }
+
+        .line-row-1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: .75rem;
+            flex-wrap: wrap;
+        }
+
+        .line-row-2 {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            gap: .75rem;
+            margin-top: .35rem;
+            flex-wrap: wrap;
+        }
+
+        .line-item-title {
+            font-size: .9rem;
+        }
+
+        .line-item-title .help {
+            font-size: .75rem;
+        }
+
+        .line-qty-block {
+            text-align: right;
+            min-width: 120px;
+        }
+
+        .line-qty-block-label,
+        .line-price-label,
+        .line-subtotal-label {
+            font-size: .75rem;
+            color: var(--muted);
+        }
+
+        .line-qty-unit {
+            font-size: .75rem;
+            color: var(--muted);
+        }
+
+        .line-price-block {
+            flex: 1;
+            min-width: 130px;
+        }
+
+        .line-subtotal-block {
+            min-width: 130px;
+            text-align: right;
+        }
+
+        .line-subtotal-value {
+            font-weight: 600;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: .25rem;
+        }
+
+        .summary-row-label {
+            font-size: .85rem;
+            color: var(--muted);
+        }
+
+        .summary-row-value {
+            font-size: .9rem;
+        }
+
+        @media (max-width: 767.98px) {
+            .page-wrap {
+                padding-inline: .5rem;
+            }
+
+            .header-left {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: .15rem;
+            }
+
+            .header-left h5 {
+                font-size: 1rem;
+            }
+
+            .badge-status {
+                font-size: .65rem;
+            }
+
+            .kpi-row .card {
+                padding: .4rem .35rem;
+            }
+
+            .kpi-row .value {
+                font-size: .9rem;
+            }
+
+            .kpi-row .help {
+                font-size: .7rem;
+            }
+
+            .line-card {
+                padding: .55rem .65rem;
+            }
+
+            .line-item-title {
+                font-size: .85rem;
+            }
+
+            .line-qty-block {
+                min-width: 100px;
+            }
+
+            .summary-row-label {
+                font-size: .8rem;
+            }
+
+            .summary-row-value {
+                font-size: .9rem;
+            }
+        }
     </style>
 @endpush
 
@@ -48,27 +175,30 @@
     <div class="container py-3 page-wrap">
 
         {{-- === HEADER === --}}
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="d-flex align-items-center gap-2">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap header-left">
                 <a href="{{ route('purchasing.invoices.index') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-arrow-left"></i> Kembali
                 </a>
-                <h5 class="mb-0 mono">{{ $invoice->code }}</h5>
-                @php
-                    $docBadge = $invoice->status === 'posted' ? 'success' : 'secondary';
-                    $payBadge = match ($invoice->payment_status) {
-                        'paid' => 'success',
-                        'partial' => 'warning',
-                        default => 'secondary',
-                    };
-                @endphp
-                <span class="badge bg-{{ $docBadge }} badge-status">{{ strtoupper($invoice->status) }}</span>
-                <span class="badge bg-{{ $payBadge }} badge-status text-uppercase">{{ $invoice->payment_status }}</span>
+
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <h5 class="mb-0 mono">{{ $invoice->code }}</h5>
+                    @php
+                        $docBadge = $invoice->status === 'posted' ? 'success' : 'secondary';
+                        $payBadge = match ($invoice->payment_status) {
+                            'paid' => 'success',
+                            'partial' => 'warning',
+                            default => 'secondary',
+                        };
+                    @endphp
+                    <span class="badge bg-{{ $docBadge }} badge-status">{{ strtoupper($invoice->status) }}</span>
+                    <span
+                        class="badge bg-{{ $payBadge }} badge-status text-uppercase">{{ $invoice->payment_status }}</span>
+                </div>
             </div>
 
             <div class="d-flex align-items-center gap-2">
                 @if ($invoice->status === 'posted')
-                    {{-- Draft: tidak ada tombol di kanan atas, Post dipindah ke "Simpan & Post" di detail --}}
                     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#payModal">
                         <i class="bi bi-cash-coin me-1"></i> Tambah Pembayaran
                     </button>
@@ -100,11 +230,13 @@
                             <span class="help">({{ $invoice->warehouse->code ?? '' }})</span>
                         </div>
                     </div>
-                    <div class="col-md-6">
+
+                    {{-- Catatan & Status Pembayaran disembunyikan di mobile --}}
+                    <div class="col-md-6 d-none d-md-block">
                         <div class="help">Catatan</div>
                         <div>{{ $invoice->note ?: '—' }}</div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-6 d-none d-md-block">
                         <div class="help">Status Pembayaran</div>
                         <div class="mono text-uppercase">
                             <span class="badge bg-{{ $payBadge }}">{{ $invoice->payment_status }}</span>
@@ -115,20 +247,20 @@
         </div>
 
         {{-- === KPI ANGKA === --}}
-        <div class="row g-2 mb-3">
-            <div class="col-6 col-md-4">
+        <div class="row g-2 mb-3 kpi-row">
+            <div class="col-4 col-md-4">
                 <div class="card text-center p-2">
                     <div class="help">Grand Total</div>
                     <div class="value mono fw-semibold">Rp {{ number_format($grand, 0, ',', '.') }}</div>
                 </div>
             </div>
-            <div class="col-6 col-md-4">
+            <div class="col-4 col-md-4">
                 <div class="card text-center p-2">
                     <div class="help">Dibayar</div>
                     <div class="value mono fw-semibold text-success">Rp {{ number_format($paid, 0, ',', '.') }}</div>
                 </div>
             </div>
-            <div class="col-6 col-md-4">
+            <div class="col-4 col-md-4">
                 <div class="card text-center p-2">
                     <div class="help">Sisa</div>
                     <div class="value mono fw-semibold" style="color: var(--bs-warning)">
@@ -138,22 +270,20 @@
             </div>
         </div>
 
-        {{-- === DETAIL ITEM (EDITABLE) === --}}
+        {{-- === DETAIL ITEM (CARD FULL) === --}}
         <div class="card mb-3">
             <div class="card-body">
 
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
                     <strong>Detail Pembelian</strong>
 
                     @if ($invoice->status === 'draft')
                         <div class="btn-group btn-group-sm" role="group">
-                            {{-- Simpan Perubahan & tetap draft (preview) --}}
                             <button type="submit" form="invoice-lines-form" name="next_action" value="preview"
                                 class="btn btn-outline-primary">
                                 <i class="bi bi-save me-1"></i> Simpan & Preview
                             </button>
 
-                            {{-- Simpan & langsung Post --}}
                             <button type="submit" form="invoice-lines-form" name="next_action" value="post"
                                 class="btn btn-primary"
                                 onclick="return confirm('Simpan perubahan dan post invoice ini? Stok & jurnal akan dibuat.');">
@@ -170,96 +300,95 @@
                     @csrf
                     @method('PUT')
 
-                    <div class="table-responsive mt-2">
-                        <table class="table align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th width="12%" class="text-end">Qty</th>
-                                    <th width="12%">Unit</th>
-                                    <th width="18%" class="text-end">Harga</th>
-                                    <th width="18%" class="text-end">Subtotal</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @php $sum = 0; @endphp
-                                @forelse($invoice->lines as $ln)
-                                    @php
-                                        $sub = (float) $ln->qty * (float) $ln->unit_cost;
-                                        $sum += $sub;
-                                    @endphp
-                                    <tr data-line-id="{{ $ln->id }}">
-                                        <td class="mono">
-                                            {{ $ln->item_code }}
-                                            <span class="help d-block">{{ $ln->item?->name }}</span>
-                                        </td>
+                    @php $sum = 0; @endphp
 
-                                        {{-- QTY --}}
-                                        <td class="text-end">
-                                            @if ($invoice->status === 'draft')
-                                                <input type="number" step="0.01" min="0"
-                                                    name="lines[{{ $ln->id }}][qty]"
-                                                    value="{{ old("lines.$ln->id.qty", $ln->qty) }}"
-                                                    class="form-control form-control-sm text-end mono js-qty">
-                                            @else
-                                                <span class="mono">
-                                                    {{ number_format($ln->qty, 2, ',', '.') }}
-                                                </span>
-                                            @endif
-                                        </td>
+                    @forelse($invoice->lines as $ln)
+                        @php
+                            $sub = (float) $ln->qty * (float) $ln->unit_cost;
+                            $sum += $sub;
+                        @endphp
+                        <div class="line-card" data-line-id="{{ $ln->id }}">
+                            {{-- BARIS 1: Item + Qty --}}
+                            <div class="line-row-1">
+                                <div class="line-item-title mono">
+                                    {{ $ln->item_code }}
+                                    <div class="help">{{ $ln->item?->name }}</div>
+                                </div>
 
-                                        {{-- UNIT --}}
-                                        <td>{{ $ln->unit }}</td>
+                                <div class="line-qty-block">
+                                    <div class="line-qty-block-label">Qty</div>
+                                    @if ($invoice->status === 'draft')
+                                        <input type="number" step="0.01" min="0"
+                                            name="lines[{{ $ln->id }}][qty]"
+                                            value="{{ old("lines.$ln->id.qty", $ln->qty) }}"
+                                            class="form-control form-control-sm text-end mono js-qty">
+                                    @else
+                                        <div class="mono">
+                                            {{ number_format($ln->qty, 2, ',', '.') }}
+                                        </div>
+                                    @endif
+                                    <div class="line-qty-unit">
+                                        {{ $ln->unit }}
+                                    </div>
+                                </div>
+                            </div>
 
-                                        {{-- HARGA --}}
-                                        <td class="text-end">
-                                            @if ($invoice->status === 'draft')
-                                                <input type="number" step="1" min="0"
-                                                    name="lines[{{ $ln->id }}][unit_cost]"
-                                                    value="{{ old("lines.$ln->id.unit_cost", $ln->unit_cost) }}"
-                                                    class="form-control form-control-sm text-end mono js-price">
-                                            @else
-                                                <span class="mono">
-                                                    Rp {{ number_format($ln->unit_cost, 0, ',', '.') }}
-                                                </span>
-                                            @endif
-                                        </td>
+                            {{-- BARIS 2: Harga + Subtotal --}}
+                            <div class="line-row-2">
+                                <div class="line-price-block">
+                                    <div class="line-price-label">Harga</div>
+                                    @if ($invoice->status === 'draft')
+                                        <input type="number" step="1" min="0"
+                                            name="lines[{{ $ln->id }}][unit_cost]"
+                                            value="{{ old("lines.$ln->id.unit_cost", $ln->unit_cost) }}"
+                                            class="form-control form-control-sm text-end mono js-price">
+                                    @else
+                                        <div class="mono">
+                                            Rp {{ number_format($ln->unit_cost, 0, ',', '.') }}
+                                        </div>
+                                    @endif
+                                </div>
 
-                                        {{-- SUBTOTAL (AUTO) --}}
-                                        <td class="text-end mono js-subtotal">
-                                            Rp {{ number_format($sub, 0, ',', '.') }}
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="5" class="text-center help py-4">Tidak ada detail.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="4" class="text-end">Subtotal</td>
-                                    <td class="text-end mono js-subtotal-sum">
-                                        Rp {{ number_format($sum, 0, ',', '.') }}
-                                    </td>
-                                </tr>
-                                @if (!is_null($invoice->other_costs))
-                                    <tr>
-                                        <td colspan="4" class="text-end">Biaya Lain / Ongkir</td>
-                                        <td class="text-end mono">
-                                            Rp {{ number_format((float) $invoice->other_costs, 0, ',', '.') }}
-                                        </td>
-                                    </tr>
-                                @endif
-                                <tr>
-                                    <td colspan="4" class="text-end fw-semibold">Grand Total</td>
-                                    <td class="text-end mono fw-semibold js-grand-total">
-                                        Rp {{ number_format($grand, 0, ',', '.') }}
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                                <div class="line-subtotal-block">
+                                    <div class="line-subtotal-label">Subtotal</div>
+                                    <div class="line-subtotal-value mono js-subtotal">
+                                        Rp {{ number_format($sub, 0, ',', '.') }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="text-center help py-3">
+                            Tidak ada detail.
+                        </div>
+                    @endforelse
+
+                    {{-- RINGKASAN BAWAH --}}
+                    <div class="mt-2 pt-2 border-top" style="border-color: var(--line) !important;">
+                        <div class="summary-row">
+                            <div class="summary-row-label">Subtotal</div>
+                            <div class="summary-row-value mono js-subtotal-sum">
+                                Rp {{ number_format($sum, 0, ',', '.') }}
+                            </div>
+                        </div>
+
+                        @if (!is_null($invoice->other_costs))
+                            <div class="summary-row">
+                                <div class="summary-row-label">Biaya Lain / Ongkir</div>
+                                <div class="summary-row-value mono">
+                                    Rp {{ number_format((float) $invoice->other_costs, 0, ',', '.') }}
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="summary-row">
+                            <div class="summary-row-label fw-semibold">Grand Total</div>
+                            <div class="summary-row-value mono fw-semibold js-grand-total">
+                                Rp {{ number_format($grand, 0, ',', '.') }}
+                            </div>
+                        </div>
                     </div>
+
                 </form>
             </div>
         </div>
@@ -346,19 +475,19 @@
             const recalc = () => {
                 let subtotalSum = 0;
 
-                form.querySelectorAll('tr[data-line-id]').forEach(tr => {
-                    const qtyInput = tr.querySelector('.js-qty');
-                    const priceInput = tr.querySelector('.js-price');
-                    const subCell = tr.querySelector('.js-subtotal');
+                form.querySelectorAll('.line-card[data-line-id]').forEach(card => {
+                    const qtyInput = card.querySelector('.js-qty');
+                    const priceInput = card.querySelector('.js-price');
+                    const subEl = card.querySelector('.js-subtotal');
 
-                    if (!qtyInput || !priceInput || !subCell) return;
+                    if (!qtyInput || !priceInput || !subEl) return;
 
                     const qty = parseFloat(String(qtyInput.value).replace(',', '.')) || 0;
                     const price = parseFloat(String(priceInput.value).replace(',', '.')) || 0;
                     const sub = qty * price;
 
                     subtotalSum += sub;
-                    subCell.textContent = fmtRupiah(sub);
+                    subEl.textContent = fmtRupiah(sub);
                 });
 
                 const subtotalCell = form.querySelector('.js-subtotal-sum');

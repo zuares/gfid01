@@ -15,93 +15,173 @@
         .card {
             background: var(--card);
             border: 1px solid var(--line);
-            border-radius: var(--radius)
+            border-radius: var(--radius);
+        }
+
+        .card.table-card {
+            /* shadow khusus kartu tabel, halus tapi tetap “angkat” */
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .18);
         }
 
         .soft {
-            border-color: color-mix(in srgb, var(--line) 70%, transparent 30%)
+            border-color: color-mix(in srgb, var(--line) 70%, transparent 30%);
         }
 
         .mono {
             font-variant-numeric: tabular-nums;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
         }
 
         .muted {
-            color: var(--muted)
+            color: var(--muted);
         }
 
         .btn-ghost {
             border: 1px solid var(--line);
-            background: transparent
+            background: transparent;
+        }
+
+        .btn-ghost:hover {
+            background: color-mix(in srgb, var(--card) 85%, var(--line) 15%);
+        }
+
+        /* HEADER STICKY (MOBILE) */
+        .page-header {
+            margin-bottom: 0.75rem;
+            border-radius: var(--radius);
+            background: color-mix(in srgb, var(--card) 92%, var(--line) 8%);
+        }
+
+        @media (max-width: 767.98px) {
+            .page-header {
+                position: sticky;
+                top: 0;
+                z-index: 30;
+                padding-block: .5rem;
+                /* lebih terang & shadow minimal supaya tidak terlalu gelap di dark mode */
+                background: color-mix(in srgb, var(--card) 88%, rgba(255, 255, 255, .08) 12%);
+                border-radius: 0 0 var(--radius) var(--radius);
+                box-shadow: 0 4px 10px rgba(0, 0, 0, .18);
+            }
+
+            .page-header h5 {
+                font-size: 1rem;
+            }
+
+            .page-header .muted {
+                font-size: .8rem;
+            }
+
+            .page-header .btn {
+                padding-inline: .6rem;
+            }
         }
 
         /* KPI */
         .kpi {
-            padding: .9rem 1rem
+            padding: .9rem 1rem;
         }
 
         .kpi .label {
             font-size: .82rem;
             color: var(--muted);
-            letter-spacing: .02em
+            letter-spacing: .02em;
         }
 
         .kpi .value {
             font-weight: 600;
-            font-size: 1.15rem
+            font-size: 1.15rem;
+        }
+
+        /* KPI: sembunyikan di mobile */
+        @media (max-width: 767.98px) {
+            .kpi-row {
+                display: none !important;
+            }
         }
 
         /* Filter */
+        .filter {
+            border-radius: var(--radius);
+        }
+
         .filter .form-control,
         .filter .form-select {
             border-radius: 10px;
             background: transparent;
-            border: 1px solid var(--line)
+            border: 1px solid var(--line);
+        }
+
+        @media (max-width: 767.98px) {
+            .filter {
+                padding: .75rem;
+                margin-bottom: 0.75rem;
+            }
+
+            .filter .row>[class^="col-"],
+            .filter .row>[class*=" col-"] {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+
+            .filter .form-control,
+            .filter .form-select {
+                font-size: .85rem;
+                padding: .35rem .55rem;
+            }
         }
 
         /* Table minimal */
         .table {
-            margin: ;
-
+            margin-bottom: 0;
         }
 
         .table thead th {
             font-weight: 600;
             color: var(--muted);
-            background: var(--card);
+            background: color-mix(in srgb, var(--card) 88%, var(--line) 12%);
             position: sticky;
             top: 0;
-            z-index: 1
+            z-index: 1;
         }
 
+        /* cell transparan, warna diatur di tr */
         .table th,
         .table td {
             border: 0;
-            background: var(--card);
+            background: transparent;
         }
 
         .table tbody tr+tr td {
             border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent 20%);
         }
 
-
-
-        .table tbody tr {
-            transition: background-color .15s ease, box-shadow .15s ease;
+        /* WARNA BARIS: beda dari background + eye catching */
+        .table tbody tr.invoice-row {
+            cursor: pointer;
+            transition: background-color .15s ease, box-shadow .15s ease, transform .12s ease;
+            background: color-mix(in srgb, var(--card) 85%, var(--line) 15%);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
         }
 
+        .table tbody tr.invoice-row:nth-child(even) {
+            background: color-mix(in srgb, var(--card) 80%, var(--line) 20%);
+        }
 
-
+        .table tbody tr.invoice-row:hover {
+            background: color-mix(in srgb, var(--card) 75%, var(--line) 25%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .20);
+        }
 
         .badge {
             border-radius: 999px;
             font-size: .72rem;
-            padding: .18rem .6rem
+            padding: .18rem .6rem;
         }
 
         .row-gap {
-            row-gap: .5rem
+            row-gap: .5rem;
         }
 
         /* Status pill */
@@ -132,35 +212,54 @@
 
         .status-dot.doc-draft {
             background-color: #ffc107;
-            /* warning-ish */
         }
 
         .status-dot.doc-posted {
             background-color: #28a745;
-            /* success-ish */
         }
 
         .status-dot.pay-unpaid {
             background-color: #dc3545;
-            /* danger-ish */
         }
 
         .status-dot.pay-partial {
             background-color: #ffc107;
-            /* warning-ish */
         }
 
         .status-dot.pay-paid {
             background-color: #28a745;
-            /* success-ish */
+        }
+
+        /* TOTAL text */
+        .total-cell {
+            font-size: .9rem;
+        }
+
+        .total-cell .total-mobile {
+            font-size: .8rem;
+        }
+
+        @media (max-width: 767.98px) {
+            .total-cell {
+                font-size: .8rem;
+            }
+        }
+
+        /* table padding di mobile */
+        @media (max-width: 767.98px) {
+
+            .table td,
+            .table th {
+                padding-block: .4rem;
+            }
         }
     </style>
 @endpush
 
 @section('content')
     <div class="wrap py-3">
-        {{-- Header --}}
-        <div class="d-flex align-items-center justify-content-between mb-3">
+        {{-- Header (sticky di mobile) --}}
+        <div class="d-flex align-items-center justify-content-between page-header px-3 py-2">
             <div class="d-flex align-items-center gap-2">
                 <div>
                     <h5 class="mb-0">Purchasing • Invoices</h5>
@@ -175,8 +274,8 @@
             </div>
         </div>
 
-        {{-- KPI --}}
-        <div class="row row-gap g-2 mb-3">
+        {{-- KPI (desktop saja) --}}
+        <div class="row row-gap g-2 mb-3 kpi-row d-none d-md-flex">
             <div class="col-6 col-md-3">
                 <div class="card kpi">
                     <div class="label">Jumlah Faktur</div>
@@ -203,12 +302,12 @@
             </div>
         </div>
 
-        {{-- Filter (auto-apply, no submit button) --}}
+        {{-- Filter --}}
         <form method="GET" class="card soft p-3 mb-3 filter" id="filterForm">
             <div class="row g-2">
                 <div class="col-12 col-md-3">
                     <input type="text" name="q" value="{{ $q ?? '' }}" class="form-control"
-                        placeholder="Cari kode/supplier">
+                        placeholder="Cari kode / supplier">
                 </div>
                 <div class="col-6 col-md-2">
                     <select name="status" class="form-select">
@@ -230,7 +329,9 @@
                     <select name="supplier" class="form-select">
                         <option value="">Semua Supplier</option>
                         @foreach ($suppliers as $s)
-                            <option value="{{ $s->id }}" @selected(($supp ?? '') == $s->id)>{{ $s->name }}</option>
+                            <option value="{{ $s->id }}" @selected(($supp ?? '') == $s->id)>
+                                {{ $s->code ?? $s->name }}
+                            </option>
                         @endforeach
                     </select>
                 </div>
@@ -242,17 +343,29 @@
         </form>
 
         {{-- Table --}}
-        <div class="card">
+        <div class="card table-card">
             <div class="table-responsive">
                 <table class="table align-middle">
                     <thead>
                         <tr>
-                            <th style="width:16%">Kode</th>
+                            {{-- Kode: desktop saja --}}
+                            <th class="d-none d-md-table-cell" style="width:16%">Kode</th>
+
+                            {{-- Tanggal: mobile DD-MM, desktop YYYY-MM-DD --}}
                             <th style="width:12%">Tanggal</th>
+
+                            {{-- Supplier: mobile & desktop = nama supplier --}}
                             <th>Supplier</th>
+
+                            {{-- Total --}}
                             <th class="text-end" style="width:14%">Total</th>
-                            <th class="text-end" style="width:14%">Dibayar</th>
-                            <th class="text-end" style="width:14%">Sisa</th>
+
+                            {{-- Dibayar: desktop saja --}}
+                            <th class="text-end d-none d-md-table-cell" style="width:14%">Dibayar</th>
+
+                            {{-- Sisa: desktop saja --}}
+                            <th class="text-end d-none d-md-table-cell" style="width:14%">Sisa</th>
+
                             <th style="width:16%">Status</th>
                             <th style="width:8%" class="text-end">Aksi</th>
                         </tr>
@@ -272,11 +385,6 @@
                                 $payStatus =
                                     $inv->payment_status ??
                                     ($remainRow <= 0.00001 ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'));
-                                $payBadge =
-                                    ['paid' => 'success', 'partial' => 'warning', 'unpaid' => 'secondary'][
-                                        $payStatus
-                                    ] ?? 'secondary';
-                                $docBadge = $inv->status === 'posted' ? 'success' : 'secondary';
 
                                 $payLabel =
                                     [
@@ -285,34 +393,56 @@
                                         'unpaid' => 'Belum Bayar',
                                     ][$payStatus] ?? strtoupper($payStatus);
                             @endphp
-                            <tr>
-                                {{-- Kode + chip kecil --}}
-                                <td class="mono">
+                            <tr class="invoice-row" data-href="{{ route('purchasing.invoices.show', $inv) }}">
+                                {{-- Kode: desktop-only --}}
+                                <td class="mono d-none d-md-table-cell">
                                     {{ $inv->code }}
-                                    <div class="small mt-1">
-
-                                    </div>
                                 </td>
 
-                                {{-- Tanggal --}}
+                                {{-- Tanggal: desktop = YYYY-MM-DD, mobile = DD-MM --}}
                                 <td class="mono">
-                                    {{ \Illuminate\Support\Carbon::parse($inv->date)->toDateString() }}
+                                    <span class="d-none d-md-inline">
+                                        {{ \Illuminate\Support\Carbon::parse($inv->date)->toDateString() }}
+                                    </span>
+                                    <span class="d-inline d-md-none">
+                                        {{ \Illuminate\Support\Carbon::parse($inv->date)->format('d-m') }}
+                                    </span>
                                 </td>
 
-                                {{-- Supplier + note singkat --}}
+                                {{-- Supplier: pakai nama saja (mobile & desktop) --}}
                                 <td>
-                                    {{ $inv->supplier?->name ?? '—' }}
+                                    <span>
+                                        {{ $inv->supplier?->name ?? '—' }}
+                                    </span>
+
                                     @if (!empty($inv->note))
-                                        <div class="small muted">
+                                        <div class="small muted d-none d-md-block">
                                             {{ \Illuminate\Support\Str::limit($inv->note, 64) }}
                                         </div>
                                     @endif
                                 </td>
 
-                                {{-- Angka --}}
-                                <td class="mono text-end">Rp {{ $fmt($total) }}</td>
-                                <td class="mono text-end">Rp {{ $fmt($paid) }}</td>
-                                <td class="mono text-end">Rp {{ $fmt($remainRow) }}</td>
+                                {{-- Total --}}
+                                <td class="mono text-end total-cell">
+                                    {{-- Desktop: pakai Rp --}}
+                                    <span class="d-none d-md-inline">
+                                        Rp {{ $fmt($total) }}
+                                    </span>
+                                    {{-- Mobile: hanya angka, lebih kecil --}}
+                                    <span class="d-inline d-md-none total-mobile">
+                                        {{ $fmt($total) }}
+                                    </span>
+                                </td>
+
+                                {{-- Dibayar: desktop-only --}}
+                                <td class="mono text-end d-none d-md-table-cell">
+                                    Rp {{ $fmt($paid) }}
+                                </td>
+
+                                {{-- Sisa: desktop-only --}}
+                                <td class="mono text-end d-none d-md-table-cell">
+                                    Rp {{ $fmt($remainRow) }}
+                                </td>
 
                                 {{-- Status visual --}}
                                 <td>
@@ -337,12 +467,13 @@
                                     </div>
                                 </td>
 
-                                {{-- Aksi pakai icon --}}
+                                {{-- Aksi --}}
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm" role="group">
-                                        {{-- Detail --}}
-                                        <a href="{{ route('purchasing.invoices.show', $inv) }}" class="btn btn-ghost"
-                                            title="Lihat Detail" aria-label="Lihat Detail">
+                                        {{-- Detail: hanya di desktop (mobile pakai klik baris) --}}
+                                        <a href="{{ route('purchasing.invoices.show', $inv) }}"
+                                            class="btn btn-ghost d-none d-md-inline-flex" title="Lihat Detail"
+                                            aria-label="Lihat Detail">
                                             <i class="bi bi-eye"></i>
                                         </a>
 
@@ -351,7 +482,14 @@
                                             <a href="{{ route('purchasing.invoices.lines.edit', $inv) }}"
                                                 class="btn btn-outline-primary" title="Edit Detail"
                                                 aria-label="Edit Detail">
-                                                <i class="bi bi-pencil-square"></i>
+                                                {{-- Desktop: icon saja --}}
+                                                <span class="d-none d-md-inline">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                </span>
+                                                {{-- Mobile: icon kecil + teks bisa dibaca --}}
+                                                <span class="d-inline d-md-none">
+                                                    <i class="bi bi-pencil-square"></i> Edit
+                                                </span>
                                             </a>
                                         @endif
                                     </div>
@@ -425,6 +563,20 @@
                         debounced();
                     }
                 }
+            });
+
+            // === Klik baris -> ke halaman detail (kecuali klik tombol / link) ===
+            document.querySelectorAll('tr.invoice-row').forEach(row => {
+                row.addEventListener('click', (e) => {
+                    // Jika klik di dalam tombol / link, jangan navigate
+                    const interactive = e.target.closest('a, button, input, label, select');
+                    if (interactive) return;
+
+                    const href = row.dataset.href;
+                    if (href) {
+                        window.location.href = href;
+                    }
+                });
             });
         })();
     </script>

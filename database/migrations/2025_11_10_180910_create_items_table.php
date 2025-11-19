@@ -12,7 +12,7 @@ return new class extends Migration
             $t->id();
             $t->string('code')->unique(); // FLC280BLK, K7BLK (tanpa embel-embel)
             $t->string('name');
-            $t->string('uom', 16)->default('pcs'); // material biasanya 'kg'
+            $t->string('unit', 16)->default('pcs'); // material biasanya 'kg'
             $t->enum('type', ['material', 'finished'])->default('material');
             $t->timestamps();
         });

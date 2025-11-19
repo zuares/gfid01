@@ -20,44 +20,40 @@ class SewingPick extends Model
         'status',
         'notes',
         'created_by',
+        'posted_at',
     ];
 
     protected $casts = [
         'date' => 'date',
+        'posted_at' => 'datetime',
     ];
 
-    // Relations
+    /* ==========
+     * RELASI
+     * ========== */
 
-    // header -> many lines
-    public function lines()
+    public function operator()
     {
-        return $this->hasMany(SewingPickLine::class);
+        return $this->belongsTo(Employee::class, 'operator_id');
     }
 
-    // dari gudang (WIP-CUT)
     public function fromWarehouse()
     {
         return $this->belongsTo(Warehouse::class, 'from_warehouse_id');
     }
 
-    // ke gudang (WIP-SEW / operator)
     public function toWarehouse()
     {
         return $this->belongsTo(Warehouse::class, 'to_warehouse_id');
     }
 
-    // operator yang melakukan proses (optional)
-    public function operator()
+    public function lines()
     {
-        return $this->belongsTo(User::class, 'operator_id');
-    }
-
-    // user yang membuat dokumen
-    public function createdBy()
-    {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->hasMany(SewingPickLine::class, 'sewing_pick_id');
     }
 
     public function creator()
-    {return $this->belongsTo(User::class, 'created_by');}
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 }

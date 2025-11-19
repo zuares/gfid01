@@ -110,81 +110,74 @@ class SewingReportController extends Controller
         $dateTo = $request->input('date_to');
 
         // ========================
-        // 1) REKAP PER ITEM + LOT
+        // 1) REKAP PER ITEM (TANPA LOT)
         // ========================
 
-        // Ambil jahit group by item+lot
-        $ambilPerItemLotQuery = DB::table('sewing_picks as p')
+        // Ambil jahit group by item
+        $ambilPerItemQuery = DB::table('sewing_picks as p')
             ->join('sewing_pick_lines as l', 'l.sewing_pick_id', '=', 'p.id')
             ->leftJoin('items as i', 'i.id', '=', 'l.item_id')
-            ->leftJoin('lots as lot', 'lot.id', '=', 'l.lot_id')
             ->where('p.operator_id', $operator->id);
 
         if ($dateFrom) {
-            $ambilPerItemLotQuery->whereDate('p.date', '>=', $dateFrom);
+            $ambilPerItemQuery->whereDate('p.date', '>=', $dateFrom);
         }
         if ($dateTo) {
-            $ambilPerItemLotQuery->whereDate('p.date', '<=', $dateTo);
+            $ambilPerItemQuery->whereDate('p.date', '<=', $dateTo);
         }
 
-        $ambilPerItemLot = $ambilPerItemLotQuery
+        $ambilPerItem = $ambilPerItemQuery
             ->select(
                 'l.item_id',
                 'l.item_code',
                 'i.name as item_name',
-                'l.lot_id',
-                'lot.code as lot_code',
                 DB::raw('SUM(l.qty) as total_ambil')
             )
-            ->groupBy('l.item_id', 'l.item_code', 'i.name', 'l.lot_id', 'lot.code')
+            ->groupBy('l.item_id', 'l.item_code', 'i.name')
             ->get();
 
-        // Setor jahit group by item+lot (OK + Reject)
-        $setorPerItemLotQuery = DB::table('sewing_returns as r')
+        // Setor jahit group by item (OK + Reject)
+        $setorPerItemQuery = DB::table('sewing_returns as r')
             ->join('sewing_return_lines as l', 'l.sewing_return_id', '=', 'r.id')
             ->where('r.operator_id', $operator->id);
 
         if ($dateFrom) {
-            $setorPerItemLotQuery->whereDate('r.date', '>=', $dateFrom);
+            $setorPerItemQuery->whereDate('r.date', '>=', $dateFrom);
         }
         if ($dateTo) {
-            $setorPerItemLotQuery->whereDate('r.date', '<=', $dateTo);
+            $setorPerItemQuery->whereDate('r.date', '<=', $dateTo);
         }
 
-        $setorPerItemLotRaw = $setorPerItemLotQuery
+        $setorPerItemRaw = $setorPerItemQuery
             ->select(
                 'l.item_id',
-                'l.lot_id',
                 DB::raw('SUM(l.qty_ok) as total_ok'),
                 DB::raw('SUM(l.qty_reject) as total_reject')
             )
-            ->groupBy('l.item_id', 'l.lot_id')
+            ->groupBy('l.item_id')
             ->get();
 
-        // Convert ke map [item_id-lot_id => [ok, reject]]
+        // Convert ke map [item_id => [ok, reject]]
         $setorMap = [];
-        foreach ($setorPerItemLotRaw as $row) {
-            $key = $row->item_id . '-' . $row->lot_id;
-            $setorMap[$key] = [
+        foreach ($setorPerItemRaw as $row) {
+            $setorMap[$row->item_id] = [
                 'ok' => (float) $row->total_ok,
                 'reject' => (float) $row->total_reject,
             ];
         }
 
-        // Gabung ambil + setor + sisa
-        $rekapItemLot = $ambilPerItemLot->map(function ($row) use ($setorMap) {
-            $key = $row->item_id . '-' . $row->lot_id;
-
-            $totalOk = $setorMap[$key]['ok'] ?? 0;
-            $totalReject = $setorMap[$key]['reject'] ?? 0;
+        // Gabung ambil + setor + sisa per item
+        $rekapItem = $ambilPerItem->map(function ($row) use ($setorMap) {
+            $itemId = $row->item_id;
 
             $totalAmbil = (float) $row->total_ambil;
+            $totalOk = $setorMap[$itemId]['ok'] ?? 0;
+            $totalReject = $setorMap[$itemId]['reject'] ?? 0;
             $sisa = max($totalAmbil - ($totalOk + $totalReject), 0);
 
             return (object) [
                 'item_code' => $row->item_code,
                 'item_name' => $row->item_name,
-                'lot_code' => $row->lot_code,
                 'total_ambil' => $totalAmbil,
                 'total_ok' => $totalOk,
                 'total_reject' => $totalReject,
@@ -193,12 +186,11 @@ class SewingReportController extends Controller
         })->sortByDesc('sisa')->values();
 
         // =========================
-        // 2) HISTORI AMBIL PER HARI
+        // 2) HISTORI AMBIL PER HARI (TANPA LOT)
         // =========================
         $historiAmbilQuery = DB::table('sewing_picks as p')
             ->join('sewing_pick_lines as l', 'l.sewing_pick_id', '=', 'p.id')
             ->leftJoin('items as i', 'i.id', '=', 'l.item_id')
-            ->leftJoin('lots as lot', 'lot.id', '=', 'l.lot_id')
             ->where('p.operator_id', $operator->id);
 
         if ($dateFrom) {
@@ -214,7 +206,6 @@ class SewingReportController extends Controller
                 'p.date',
                 'l.item_code',
                 'i.name as item_name',
-                'lot.code as lot_code',
                 'l.qty'
             )
             ->orderBy('p.date')
@@ -222,12 +213,11 @@ class SewingReportController extends Controller
             ->get();
 
         // =========================
-        // 3) HISTORI SETOR PER HARI
+        // 3) HISTORI SETOR PER HARI (TANPA LOT)
         // =========================
         $historiSetorQuery = DB::table('sewing_returns as r')
             ->join('sewing_return_lines as l', 'l.sewing_return_id', '=', 'r.id')
             ->leftJoin('items as i', 'i.id', '=', 'l.item_id')
-            ->leftJoin('lots as lot', 'lot.id', '=', 'l.lot_id')
             ->where('r.operator_id', $operator->id);
 
         if ($dateFrom) {
@@ -243,7 +233,6 @@ class SewingReportController extends Controller
                 'r.date',
                 'l.item_code',
                 'i.name as item_name',
-                'lot.code as lot_code',
                 'l.qty_ok',
                 'l.qty_reject'
             )
@@ -253,7 +242,7 @@ class SewingReportController extends Controller
 
         return view('production.sewing_report.operator_detail', [
             'operator' => $operator,
-            'rekapItemLot' => $rekapItemLot,
+            'rekapItemLot' => $rekapItem, // nama variabel view tetap sama biar nggak perlu ubah banyak
             'historiAmbil' => $historiAmbil,
             'historiSetor' => $historiSetor,
             'dateFrom' => $dateFrom,
@@ -390,76 +379,68 @@ class SewingReportController extends Controller
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
 
-        // Ambil per item+lot
-        $ambilPerItemLotQuery = DB::table('sewing_picks as p')
+        // Ambil per item (tanpa lot)
+        $ambilPerItemQuery = DB::table('sewing_picks as p')
             ->join('sewing_pick_lines as l', 'l.sewing_pick_id', '=', 'p.id')
             ->leftJoin('items as i', 'i.id', '=', 'l.item_id')
-            ->leftJoin('lots as lot', 'lot.id', '=', 'l.lot_id')
             ->where('p.operator_id', $operator->id);
 
         if ($dateFrom) {
-            $ambilPerItemLotQuery->whereDate('p.date', '>=', $dateFrom);
+            $ambilPerItemQuery->whereDate('p.date', '>=', $dateFrom);
         }
         if ($dateTo) {
-            $ambilPerItemLotQuery->whereDate('p.date', '<=', $dateTo);
+            $ambilPerItemQuery->whereDate('p.date', '<=', $dateTo);
         }
 
-        $ambilPerItemLot = $ambilPerItemLotQuery
+        $ambilPerItem = $ambilPerItemQuery
             ->select(
                 'l.item_id',
                 'l.item_code',
                 'i.name as item_name',
-                'l.lot_id',
-                'lot.code as lot_code',
                 DB::raw('SUM(l.qty) as total_ambil')
             )
-            ->groupBy('l.item_id', 'l.item_code', 'i.name', 'l.lot_id', 'lot.code')
+            ->groupBy('l.item_id', 'l.item_code', 'i.name')
             ->get();
 
-        // Setor per item+lot
-        $setorPerItemLotQuery = DB::table('sewing_returns as r')
+        // Setor per item (tanpa lot)
+        $setorPerItemQuery = DB::table('sewing_returns as r')
             ->join('sewing_return_lines as l', 'l.sewing_return_id', '=', 'r.id')
             ->where('r.operator_id', $operator->id);
 
         if ($dateFrom) {
-            $setorPerItemLotQuery->whereDate('r.date', '>=', $dateFrom);
+            $setorPerItemQuery->whereDate('r.date', '>=', $dateFrom);
         }
         if ($dateTo) {
-            $setorPerItemLotQuery->whereDate('r.date', '<=', $dateTo);
+            $setorPerItemQuery->whereDate('r.date', '<=', $dateTo);
         }
 
-        $setorPerItemLotRaw = $setorPerItemLotQuery
+        $setorPerItemRaw = $setorPerItemQuery
             ->select(
                 'l.item_id',
-                'l.lot_id',
                 DB::raw('SUM(l.qty_ok) as total_ok'),
                 DB::raw('SUM(l.qty_reject) as total_reject')
             )
-            ->groupBy('l.item_id', 'l.lot_id')
+            ->groupBy('l.item_id')
             ->get();
 
         $setorMap = [];
-        foreach ($setorPerItemLotRaw as $row) {
-            $key = $row->item_id . '-' . $row->lot_id;
-            $setorMap[$key] = [
+        foreach ($setorPerItemRaw as $row) {
+            $setorMap[$row->item_id] = [
                 'ok' => (float) $row->total_ok,
                 'reject' => (float) $row->total_reject,
             ];
         }
 
-        $rekapItemLot = $ambilPerItemLot->map(function ($row) use ($setorMap) {
-            $key = $row->item_id . '-' . $row->lot_id;
+        $rekapItem = $ambilPerItem->map(function ($row) use ($setorMap) {
+            $itemId = $row->item_id;
             $totalAmbil = (float) $row->total_ambil;
-
-            $totalOk = $setorMap[$key]['ok'] ?? 0;
-            $totalReject = $setorMap[$key]['reject'] ?? 0;
-
+            $totalOk = $setorMap[$itemId]['ok'] ?? 0;
+            $totalReject = $setorMap[$itemId]['reject'] ?? 0;
             $sisa = max($totalAmbil - ($totalOk + $totalReject), 0);
 
             return [
                 'item_code' => $row->item_code,
                 'item_name' => $row->item_name,
-                'lot_code' => $row->lot_code,
                 'total_ambil' => $totalAmbil,
                 'total_ok' => $totalOk,
                 'total_reject' => $totalReject,
@@ -469,11 +450,11 @@ class SewingReportController extends Controller
 
         $fileName = 'sewing-operator-detail-' . $operator->code . '-' . Carbon::now()->format('Ymd_His') . '.csv';
 
-        return response()->streamDownload(function () use ($rekapItemLot, $operator, $dateFrom, $dateTo) {
+        return response()->streamDownload(function () use ($rekapItem, $operator, $dateFrom, $dateTo) {
             $handle = fopen('php://output', 'w');
 
             // Header info
-            fputcsv($handle, ['Detail Sisa Jahit per Item & Lot']);
+            fputcsv($handle, ['Detail Sisa Jahit per Item']);
             fputcsv($handle, ['Operator', $operator->code, $operator->name]);
             if ($dateFrom || $dateTo) {
                 fputcsv($handle, ['Periode', $dateFrom ?: '-', 's/d', $dateTo ?: '-']);
@@ -484,18 +465,16 @@ class SewingReportController extends Controller
             fputcsv($handle, [
                 'Kode Item',
                 'Nama Item',
-                'Kode Lot',
                 'Total Ambil',
                 'Total Setor OK',
                 'Total Reject',
                 'Sisa Jahit',
             ]);
 
-            foreach ($rekapItemLot as $row) {
+            foreach ($rekapItem as $row) {
                 fputcsv($handle, [
                     $row['item_code'],
                     $row['item_name'],
-                    $row['lot_code'],
                     $row['total_ambil'],
                     $row['total_ok'],
                     $row['total_reject'],
@@ -509,4 +488,5 @@ class SewingReportController extends Controller
             'Content-Disposition' => "attachment; filename=\"$fileName\"",
         ]);
     }
+
 }

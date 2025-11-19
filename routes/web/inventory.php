@@ -3,7 +3,7 @@
 use App\Http\Controllers\Inventory\ExternalTransferController;
 use App\Http\Controllers\Inventory\MutationController;
 use App\Http\Controllers\Inventory\StockController;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Inventory\StockReportController;
 
 Route::middleware(['auth', 'role:admin'])->group(function () {
 
@@ -49,4 +49,9 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
 
     });
 
+});
+
+Route::prefix('inventory')->name('inventory.')->group(function () {
+    Route::get('stock-position', [StockReportController::class, 'index'])
+        ->name('stock_position.index');
 });

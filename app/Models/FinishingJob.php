@@ -14,11 +14,12 @@ class FinishingJob extends Model
     protected $fillable = [
         'code',
         'date',
-        'operator_id',
+        'employee_id',
         'from_warehouse_id',
         'to_warehouse_id',
-        'notes',
         'status',
+        'notes',
+        'created_by',
         'posted_at',
     ];
 
@@ -27,10 +28,11 @@ class FinishingJob extends Model
         'posted_at' => 'datetime',
     ];
 
-    // Relasi
-    public function operator()
+    // ===== RELASI =====
+
+    public function employee()
     {
-        return $this->belongsTo(Employee::class, 'operator_id');
+        return $this->belongsTo(Employee::class, 'employee_id');
     }
 
     public function fromWarehouse()
@@ -45,15 +47,11 @@ class FinishingJob extends Model
 
     public function lines()
     {
-        return $this->hasMany(FinishingJobLine::class, 'finishing_job_id');
+        return $this->hasMany(FinishingLine::class, 'finishing_job_id');
     }
 
-    // Optional: helper label status
-    public function getStatusLabelAttribute(): string
+    public function creator()
     {
-        return match ($this->status) {
-            'posted' => 'Posted',
-            default => 'Draft',
-        };
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

@@ -86,7 +86,7 @@
             font-weight: 700
         }
 
-        .ac-uom {
+        .ac-unit {
             font-size: .8rem;
             color: var(--muted)
         }
@@ -101,7 +101,7 @@
             vertical-align: middle
         }
 
-        /* Unit chip */
+        /* Unit chip (desktop) */
         .unit-chip {
             display: inline-flex;
             align-items: center;
@@ -130,28 +130,103 @@
             text-align: right
         }
 
-        /* Minimal nav hint */
+        /* Minimal nav hint (DISABLED) */
         .nav-hint {
-            display: flex;
-            gap: .6rem;
-            flex-wrap: wrap;
-            color: var(--muted);
-            font-size: .86rem
+            display: none;
         }
 
-        .nav-hint .pill {
-            border: 1px solid var(--line);
-            border-radius: 999px;
-            padding: .15rem .5rem
+        /* Layout kolom utk flex di mobile */
+        #table-lines tbody tr .col-item,
+        #table-lines tbody tr .col-qty,
+        #table-lines tbody tr .col-price,
+        #table-lines tbody tr .col-subtotal,
+        #table-lines tbody tr .col-actions {
+            /* placeholder class */
         }
 
-        .nav-hint kbd {
-            border: 1px solid var(--line);
-            border-radius: .35rem;
-            padding: .05rem .35rem;
-            background: transparent;
-            font-family: ui-monospace, Menlo, Consolas, monospace;
-            font-size: .78rem
+        @media (max-width: 767.98px) {
+
+            /* Sembunyikan header di mobile */
+            #table-lines thead {
+                display: none;
+            }
+
+            #table-lines tbody tr {
+                display: flex;
+                flex-wrap: wrap;
+                border-bottom: 1px dashed color-mix(in srgb, var(--line) 80%, transparent 20%);
+                margin-bottom: .65rem;
+                padding-bottom: .45rem;
+            }
+
+            #table-lines tbody td {
+                border: 0 !important;
+                padding: .15rem .15rem;
+            }
+
+            .col-item {
+                order: 1;
+                flex: 0 0 60%;
+            }
+
+            .col-qty {
+                order: 1;
+                flex: 0 0 30%;
+            }
+
+            .col-actions {
+                order: 1;
+                flex: 0 0 10%;
+                text-align: right;
+                align-self: flex-start;
+            }
+
+            .col-price {
+                order: 2;
+                flex: 0 0 60%;
+                margin-top: .25rem;
+            }
+
+            .col-subtotal {
+                order: 2;
+                flex: 0 0 40%;
+                margin-top: .25rem;
+                text-align: right;
+            }
+
+            .subtotal-desktop {
+                display: none !important;
+            }
+
+            .subtotal-mobile {
+                display: block;
+                font-size: .9rem;
+            }
+
+            .col-unit {
+                display: none !important;
+            }
+
+            #table-lines .form-control {
+                font-size: .85rem;
+                padding-block: .25rem;
+            }
+
+            #table-lines .input-group-text {
+                padding-inline: .4rem;
+                font-size: .8rem;
+            }
+
+            .btn-del {
+                padding: .15rem .3rem;
+                font-size: .75rem;
+            }
+        }
+
+        @media (min-width: 768px) {
+            .subtotal-mobile {
+                display: none;
+            }
         }
     </style>
 @endpush
@@ -187,10 +262,18 @@
                     <div class="row g-3">
                         <div class="col-12 col-md-3">
                             <label class="form-label">Jenis Item</label>
-                            @php $types=[''=>'— Semua —','material'=>'Bahan Baku','pendukung'=>'Bahan Pendukung','finished'=>'Barang Jadi']; @endphp
+                            @php
+                                $types = [
+                                    '' => '— Semua —',
+                                    'material' => 'Bahan Baku',
+                                    'pendukung' => 'Bahan Pendukung',
+                                    'finished' => 'Barang Jadi',
+                                ];
+                            @endphp
                             <select id="filter_type" class="form-select">
                                 @foreach ($types as $val => $label)
-                                    <option value="{{ $val }}" @selected(old('filter_type', $filterType) === $val)>{{ $label }}
+                                    <option value="{{ $val }}" @selected(old('filter_type', $filterType) === $val)>
+                                        {{ $label }}
                                     </option>
                                 @endforeach
                             </select>
@@ -209,18 +292,24 @@
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
                         </div>
+
+                        @php
+                            $warehouses = \App\Models\Warehouse::orderBy('name')->get(['id', 'name', 'code']);
+                        @endphp
+
                         <div class="col-6 col-md-3">
                             <label class="form-label required">Gudang</label>
-                            <select name="warehouse_id" id="warehouse_id"
-                                class="form-select @error('warehouse_id') is-invalid @enderror" required>
+                            <select id="warehouse_id" class="form-select @error('warehouse_id') is-invalid @enderror">
                                 <option value="">— Pilih Gudang —</option>
-                                @php $warehouses = \App\Models\Warehouse::orderBy('name')->get(['id','name','code']); @endphp
                                 @foreach ($warehouses as $w)
-                                    <option value="{{ $w->id }}" @selected(old('warehouse_id', $kontrakanId) == $w->id)>{{ $w->name }}
-                                        ({{ $w->code }})
+                                    <option value="{{ $w->id }}" @selected(old('warehouse_id', $kontrakanId) == $w->id)>
+                                        {{ $w->name }} ({{ $w->code }})
                                     </option>
                                 @endforeach
                             </select>
+                            {{-- hidden yang benar-benar dikirim ke server --}}
+                            <input type="hidden" name="warehouse_id" id="warehouse_id_hidden"
+                                value="{{ old('warehouse_id', $kontrakanId) }}">
                             @error('warehouse_id')
                                 <div class="invalid-feedback">{{ $message }}</div>
                             @enderror
@@ -255,9 +344,9 @@
                         <table class="table align-middle" id="table-lines">
                             <thead>
                                 <tr>
-                                    <th style="width:42%">Item (autocomplete • F2)</th>
+                                    <th>Item</th>
                                     <th style="width:12%">Qty</th>
-                                    <th style="width:12%">Unit</th>
+                                    <th style="width:12%" class="col-unit">Unit</th>
                                     <th style="width:18%">Harga</th>
                                     <th style="width:16%">Subtotal</th>
                                     <th style="width:6%"></th>
@@ -286,13 +375,7 @@
                         </table>
                     </div>
 
-                    <div class="nav-hint mt-2">
-                        <span class="pill"><kbd>F2</kbd> daftar</span>
-                        <span class="pill"><kbd>↑</kbd><kbd>↓</kbd> pilih</span>
-                        <span class="pill"><kbd>Enter</kbd> pilih/submit</span>
-                        <span class="pill"><kbd>Shift</kbd>+<kbd>Enter</kbd> baris baru</span>
-                        <span class="pill"><kbd>Shift</kbd>+<kbd>Backspace</kbd> hapus baris</span>
-                    </div>
+                    {{-- nav-hint disembunyikan --}}
                 </div>
             </div>
 
@@ -308,9 +391,14 @@
 @push('scripts')
     <script>
         (() => {
-            const itemsAll = @json($itemsAll);
+            const itemsAll = @json($itemsAll); // item: id, code, name, unit, type
             const filterSel = document.getElementById('filter_type');
             const supplierSel = document.getElementById('supplier_id');
+            const warehouseSel = document.getElementById('warehouse_id');
+            const warehouseHidden = document.getElementById('warehouse_id_hidden');
+            const warehouses = @json($warehouses);
+            const rawWarehouse = warehouses.find(w => w.code === 'RAW') || null;
+
             const tbody = document.querySelector('#table-lines tbody');
             const totalView = document.getElementById('grand-total');
             const ocView = document.getElementById('other_costs_view');
@@ -320,10 +408,17 @@
             const form = document.getElementById('form-purchase');
             const btnSubmit = document.getElementById('btn-submit');
 
-            const rupiah = (n) => (window.App?.formatRupiah ? window.App.formatRupiah(n) : (Number(n || 0))
-                .toLocaleString('id-ID'));
-            const parseNum = (v) => (window.App?.parseNumberId ? window.App.parseNumberId(v) :
-                (parseFloat(String(v ?? '').replace(/\s+/g, '').replace(/\./g, '').replace(',', '.')) || 0));
+            const rupiah = (n) => (window.App?.formatRupiah ?
+                window.App.formatRupiah(n) :
+                (Number(n || 0)).toLocaleString('id-ID'));
+
+            const parseNum = (v) => (window.App?.parseNumberId ?
+                window.App.parseNumberId(v) :
+                (parseFloat(String(v ?? '')
+                    .replace(/\s+/g, '')
+                    .replace(/\./g, '')
+                    .replace(',', '.')) || 0));
+
             const sanitize = (el) => el.value = el.value.replace(/[^0-9.,]/g, '');
 
             const getFilteredItems = () => {
@@ -331,6 +426,31 @@
                 return t ? itemsAll.filter(i => i.type === t) : itemsAll;
             };
 
+            // ==== Lock gudang ke RAW kalau jenis material ====
+            function syncWarehouseHidden() {
+                if (warehouseHidden && warehouseSel) {
+                    warehouseHidden.value = warehouseSel.value || '';
+                }
+            }
+
+            function updateWarehouseByType() {
+                if (!warehouseSel) return;
+                const t = filterSel.value;
+                if (t === 'material' && rawWarehouse) {
+                    warehouseSel.value = String(rawWarehouse.id);
+                    syncWarehouseHidden();
+                    warehouseSel.disabled = true;
+                } else {
+                    warehouseSel.disabled = false;
+                }
+            }
+
+            if (warehouseSel) {
+                warehouseSel.addEventListener('change', syncWarehouseHidden);
+                syncWarehouseHidden();
+            }
+
+            // ==== AJAX last price ====
             async function fetchLastPrice({
                 itemId,
                 supplierId
@@ -342,15 +462,16 @@
                 const res = await fetch(url);
                 if (!res.ok) return null;
                 const js = await res.json().catch(() => null);
-                if (js && js.ok && js.data) return js.data;
+                if (js && js.success && js.data) return js.data;
                 return null;
             }
 
+            // ==== Hitung total dari nilai HIDDEN ====
             const calcLines = () => {
                 let t = 0;
                 document.querySelectorAll('.line-row').forEach(tr => {
-                    const q = parseNum(tr.querySelector('.qty-val').value);
-                    const p = parseNum(tr.querySelector('.price-val').value);
+                    const q = Number(tr.querySelector('.qty-val').value || 0);
+                    const p = Number(tr.querySelector('.price-val').value || 0);
                     t += q * p;
                 });
                 return t;
@@ -362,15 +483,16 @@
                 totalView.textContent = rupiah(gt);
             }
 
+            // ==== Tambah baris ====
             function addLine(prefill = null) {
                 const idx = Date.now() + Math.floor(Math.random() * 999);
                 const tr = document.createElement('tr');
                 tr.classList.add('line-row');
                 tr.innerHTML =
                     `
-<td>
+<td class="col-item">
   <div class="ac-wrap">
-    <input type="text" class="form-control ac-input" placeholder="Ketik kode/nama • F2">
+    <input type="text" class="form-control ac-input" placeholder="Ketik kode/nama">
     <button type="button" class="btn btn-outline-secondary btn-sm btn-inline btn-history" title="Harga terakhir">
       <i class="bi bi-clock-history"></i>
     </button>
@@ -378,26 +500,33 @@
   </div>
   <input type="hidden" class="item-id" name="lines[${idx}][item_id]">
 </td>
-<td>
+<td class="col-qty">
   <input type="text" class="form-control text-end qty-view" inputmode="decimal" placeholder="0">
   <input type="hidden" name="lines[${idx}][qty]" class="qty-val" value="0">
 </td>
-<td>
-  <span class="unit-chip"><i class="bi bi-box"></i> <span class="unit-text">—</span></span>
+<td class="col-unit d-none d-md-table-cell">
+  <span class="unit-chip">
+    <i class="bi bi-box"></i>
+    <span class="unit-text">—</span>
+  </span>
   <input type="hidden" class="unit-hidden" name="lines[${idx}][unit]" value="">
 </td>
-<td>
+<td class="col-price">
   <div class="input-group">
     <span class="input-group-text">Rp</span>
     <input type="text" class="form-control text-end price-view" inputmode="decimal" placeholder="0">
     <input type="hidden" name="lines[${idx}][unit_cost]" class="price-val" value="0">
   </div>
-  <div class="help small mt-1 d-none hint-last">
-    Terakhir: <span class="mono hint-price">-</span> (<span class="mono hint-date">-</span>) <span class="mono hint-code"></span>
-  </div>
 </td>
-<td class="mono subtotal">0</td>
-<td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm btn-del"><i class="bi bi-trash"></i></button></td>`;
+<td class="mono col-subtotal">
+  <span class="subtotal-desktop">0</span>
+  <span class="subtotal-mobile mono">0</span>
+</td>
+<td class="text-end col-actions">
+  <button type="button" class="btn btn-outline-danger btn-sm btn-del">
+    <i class="bi bi-trash"></i>
+  </button>
+</td>`;
                 tbody.appendChild(tr);
                 bindRow(tr, prefill);
                 setTimeout(() => tr.querySelector('.ac-input')?.focus(), 0);
@@ -417,18 +546,17 @@
                 const qtyVal = tr.querySelector('.qty-val');
                 const priceView = tr.querySelector('.price-view');
                 const priceVal = tr.querySelector('.price-val');
-                const subtotal = tr.querySelector('.subtotal');
-                const hintWrap = tr.querySelector('.hint-last');
-                const hintPrice = tr.querySelector('.hint-price');
-                const hintDate = tr.querySelector('.hint-date');
-                const hintCode = tr.querySelector('.hint-code');
+                const subDesktop = tr.querySelector('.subtotal-desktop');
+                const subMobile = tr.querySelector('.subtotal-mobile');
 
                 const recalc = () => {
                     const q = parseNum(qtyView.value);
                     const p = parseNum(priceView.value);
                     qtyVal.value = q;
                     priceVal.value = p;
-                    subtotal.textContent = rupiah(q * p);
+                    const s = q * p;
+                    if (subDesktop) subDesktop.textContent = rupiah(s);
+                    if (subMobile) subMobile.textContent = rupiah(s);
                     updateTotals();
                 };
 
@@ -455,7 +583,7 @@
                 <div class="ac-item ${i===activeIndex?'active':''}" data-id="${it.id}">
                     <div class="ac-code mono">${it.code}</div>
                     <div class="ac-name">${it.name}</div>
-                    <div class="ac-uom">${it.uom||''}</div>
+                    <div class="ac-unit">${it.unit || ''}</div>
                 </div>
             `).join('');
                     acMenu.classList.remove('d-none');
@@ -474,8 +602,10 @@
                 function filterList(q) {
                     q = q.trim().toLowerCase();
                     const src = getFilteredItems();
-                    currentList = !q ? src : src.filter(it => it.code.toLowerCase().includes(q) || it.name.toLowerCase()
-                        .includes(q));
+                    currentList = !q ? src : src.filter(it =>
+                        it.code.toLowerCase().includes(q) ||
+                        it.name.toLowerCase().includes(q)
+                    );
                     activeIndex = currentList.length ? 0 : -1;
                     renderMenu(currentList);
                 }
@@ -486,11 +616,17 @@
                     renderMenu(currentList);
                 }
 
+                function applyUnitText(u) {
+                    const unit = u || '—';
+                    if (unitText) unitText.textContent = unit;
+                    if (unitHidden) unitHidden.value = unit;
+                }
+
                 function pickItem(it) {
                     itemId.value = it.id;
-                    acInput.value = `${it.code} — ${it.name}`;
-                    unitText.textContent = it.uom || '—';
-                    unitHidden.value = it.uom || '';
+                    // INPUT cuma tampilkan kode (FLC280BLK)
+                    acInput.value = it.code;
+                    applyUnitText(it.unit);
                     acMenu.classList.add('d-none');
 
                     const supplierId = supplierSel.value;
@@ -499,20 +635,13 @@
                             itemId: it.id,
                             supplierId
                         }).then(last => {
-                            if (!last) {
-                                hintWrap.classList.add('d-none');
-                                return;
-                            }
+                            if (!last) return;
                             priceView.value = rupiah(last.unit_cost);
                             priceVal.value = last.unit_cost;
                             if (last.unit) {
-                                unitText.textContent = last.unit;
-                                unitHidden.value = last.unit;
+                                applyUnitText(last.unit);
                             }
-                            hintPrice.textContent = rupiah(last.unit_cost);
-                            hintDate.textContent = last.date || '-';
-                            hintCode.textContent = last.inv_code ? `• ${last.inv_code}` : '';
-                            hintWrap.classList.remove('d-none');
+                            // highlight sebentar, tanpa teks "Terakhir: ..."
                             tr.classList.add('table-success');
                             setTimeout(() => tr.classList.remove('table-success'), 420);
                             recalc();
@@ -523,11 +652,6 @@
 
                 // ==== Keyboard di ITEM ====
                 acInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'F2') {
-                        e.preventDefault();
-                        openFullList();
-                        return;
-                    }
                     const isOpen = !acMenu.classList.contains('d-none');
                     if (isOpen && e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -540,7 +664,6 @@
                         return;
                     }
                     if (e.key === 'Enter' && !e.shiftKey) {
-                        // pilih item jika menu terbuka, kalau tidak → submit (biarkan default)
                         if (isOpen && activeIndex >= 0 && currentList[activeIndex]) {
                             e.preventDefault();
                             pickItem(currentList[activeIndex]);
@@ -596,20 +719,17 @@
                         priceView.value = rupiah(last.unit_cost);
                         priceVal.value = last.unit_cost;
                         if (last.unit) {
-                            unitText.textContent = last.unit;
-                            unitHidden.value = last.unit;
+                            applyUnitText(last.unit);
                         }
-                        hintPrice.textContent = rupiah(last.unit_cost);
-                        hintDate.textContent = last.date || '-';
-                        hintCode.textContent = last.inv_code ? `• ${last.inv_code}` : '';
-                        hintWrap.classList.remove('d-none');
+                        tr.classList.add('table-success');
+                        setTimeout(() => tr.classList.remove('table-success'), 420);
                         recalc();
                     } else {
                         alert('Belum ada riwayat harga.');
                     }
                 });
 
-                // Qty & Price (tanpa Shift+Enter handler di sini—biar tidak dobel)
+                // Qty & Price
                 qtyView.addEventListener('input', () => {
                     sanitize(qtyView);
                     recalc();
@@ -619,27 +739,25 @@
                     recalc();
                 });
 
-                // Hapus baris tombol
+                // Hapus baris
                 tr.querySelector('.btn-del').addEventListener('click', () => {
                     tr.remove();
                     updateTotals();
                 });
 
-                // Prefill opsional
+                // Prefill (kalau old input)
                 if (prefill && prefill.item_id) {
                     const found = itemsAll.find(x => x.id == prefill.item_id);
                     if (found) {
                         itemId.value = found.id;
-                        acInput.value = `${found.code} — ${found.name}`;
-                        unitText.textContent = found.uom || '—';
-                        unitHidden.value = found.uom || '';
+                        acInput.value = found.code; // cuma kode
+                        applyUnitText(found.unit);
                     }
                     if (prefill.qty != null) {
                         qtyView.value = String(prefill.qty);
                     }
                     if (prefill.unit) {
-                        unitText.textContent = prefill.unit;
-                        unitHidden.value = prefill.unit;
+                        applyUnitText(prefill.unit);
                     }
                     if (prefill.unit_cost != null) {
                         priceView.value = rupiah(prefill.unit_cost);
@@ -649,36 +767,29 @@
                 }
             }
 
-            // Tombol tambah baris
             btnAdd.addEventListener('click', () => addLine());
             btnAdd5.addEventListener('click', () => {
                 for (let i = 0; i < 5; i++) addLine();
             });
             if (!tbody.querySelector('.line-row')) addLine();
 
-            // ==== Global shortcuts ====
-            let addLock = false; // debouncer anti dobel
-            let addLockTimer = null;
+            // ==== Global shortcuts sederhana (tanpa hint) ====
+            let addLock = false;
 
             function requestAddLine() {
                 if (addLock) return;
                 addLock = true;
                 const newTr = addLine();
                 newTr.querySelector('.ac-input')?.focus();
-                addLockTimer = setTimeout(() => {
-                    addLock = false;
-                }, 250);
+                setTimeout(() => addLock = false, 250);
             }
             document.addEventListener('keydown', (e) => {
-                // Shift+Enter: tambah baris (satu kali, debounced)
                 if (e.key === 'Enter' && e.shiftKey) {
-                    // hindari dobel ketika fokus di button
                     if (document.activeElement?.closest('button')) return;
                     e.preventDefault();
                     requestAddLine();
                     return;
                 }
-                // Shift+Backspace: hapus baris fokus
                 if (e.key === 'Backspace' && e.shiftKey) {
                     const row = document.activeElement?.closest('.line-row');
                     if (row) {
@@ -690,7 +801,6 @@
                         updateTotals();
                     }
                 }
-                // Enter biasa: biarkan submit (default) → tidak dicegat
             });
 
             // Biaya lain
@@ -707,15 +817,35 @@
                     e.preventDefault();
                     return alert('Minimal 1 baris pembelian.');
                 }
-                const gt = parseNum(totalView.textContent.replace(/\./g, '').replace(',', '.'));
+
+                const gt = calcLines() + parseNum(ocView.value);
                 if (gt <= 0) {
                     e.preventDefault();
                     return alert('Grand total belum valid.');
                 }
+
                 btnSubmit.disabled = true;
                 btnSubmit.innerHTML =
                     '<span class="spinner-border spinner-border-sm me-1"></span> Menyimpan...';
+                syncWarehouseHidden();
             });
+
+            // ==== Fokus & behaviour awal ====
+            updateWarehouseByType();
+            filterSel.addEventListener('change', updateWarehouseByType);
+
+            if (supplierSel) {
+                supplierSel.focus();
+                supplierSel.addEventListener('change', () => {
+                    const firstAc = document.querySelector('#table-lines tbody .line-row .ac-input');
+                    if (firstAc) firstAc.focus();
+                });
+            }
+
+            if (supplierSel && supplierSel.value) {
+                const firstAc = document.querySelector('#table-lines tbody .line-row .ac-input');
+                if (firstAc) firstAc.focus();
+            }
 
             updateTotals();
         })();

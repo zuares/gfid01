@@ -146,19 +146,6 @@ Route::prefix('production/sewing-report')
 
     });
 
-Route::prefix('production')->name('production.')->group(function () {
-
-    // ...
-
-    Route::prefix('finishing')->name('finishing.')->group(function () {
-        Route::get('/', [FinishingController::class, 'index'])->name('index');
-        Route::get('/create', [FinishingController::class, 'create'])->name('create');
-        Route::post('/', [FinishingController::class, 'store'])->name('store');
-        Route::get('/{finishingJob}', [FinishingController::class, 'show'])->name('show');
-        Route::post('/{finishingJob}/post', [FinishingController::class, 'post'])->name('post');
-    });
-});
-
 Route::middleware(['auth', 'role:admin,finishing'])->group(function () {
     Route::prefix('production')->name('production.')->group(function () {
 
@@ -172,3 +159,13 @@ Route::middleware(['auth', 'role:admin,finishing'])->group(function () {
 
     });
 });
+
+Route::middleware(['auth', 'role:owner,admin']) // plus middleware role kalau ada
+    ->prefix('production')
+    ->name('production.')
+    ->group(function () {
+        Route::get('finishing', [FinishingController::class, 'index'])->name('finishing.index');
+        Route::get('finishing/create', [FinishingController::class, 'create'])->name('finishing.create');
+        Route::post('finishing', [FinishingController::class, 'store'])->name('finishing.store');
+        Route::get('finishing/{finishingJob}', [FinishingController::class, 'show'])->name('finishing.show');
+    });

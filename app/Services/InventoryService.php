@@ -15,6 +15,9 @@ class InventoryService
      * - PurchaseController@post()  → PURCHASE_IN
      * - transfer()                → TRANSFER_IN / TRANSFER_OUT
      */
+    /**
+     * Mutasi stok per LOT (untuk bahan baku kain, dll).
+     */
     public function mutate(
         int $warehouseId,
         int $lotId,
@@ -24,7 +27,7 @@ class InventoryService
         string $unit,
         ?string $refCode = null,
         ?string $note = null,
-        ?string $date = null, // YYYY-MM-DD
+        ?string $date = null,
         ?string $category = null
     ): void {
         $date = $date ?: now()->toDateString();
@@ -57,14 +60,14 @@ class InventoryService
             $date,
             $category
         ) {
-            // 1) INSERT ke inventory_mutations
+            // 1) catat di inventory_mutations
             DB::table('inventory_mutations')->insert([
                 'warehouse_id' => $warehouseId,
                 'category' => $category,
                 'lot_id' => $lotId,
                 'item_id' => $lot->item_id,
                 'item_code' => $lot->item_code,
-                'type' => $type, // PURCHASE_IN / TRANSFER_OUT / TRANSFER_IN / WIP_... / FG_...
+                'type' => $type,
                 'qty_in' => $qtyIn,
                 'qty_out' => $qtyOut,
                 'unit' => $unit,
@@ -75,7 +78,7 @@ class InventoryService
                 'updated_at' => now(),
             ]);
 
-            // 2) HITUNG ULANG saldo stok untuk kombinasi (warehouse_id + lot_id + unit)
+            // 2) hitung saldo per gudang+LOT+unit
             $agg = DB::table('inventory_mutations')
                 ->selectRaw('COALESCE(SUM(qty_in - qty_out), 0) as qty')
                 ->where('warehouse_id', $warehouseId)
@@ -85,7 +88,7 @@ class InventoryService
 
             $qtyNow = (float) ($agg->qty ?? 0);
 
-            // 3) UPDATE / INSERT ke inventory_stocks (per gudang + LOT + unit)
+            // 3) update / insert inventory_stocks (per gudang+LOT+unit)
             $existing = DB::table('inventory_stocks')
                 ->where('warehouse_id', $warehouseId)
                 ->where('lot_id', $lotId)
@@ -115,7 +118,6 @@ class InventoryService
             }
         });
     }
-
     /**
      * Tambah stok (mutasi IN) per gudang + LOT.
      *
@@ -176,6 +178,11 @@ class InventoryService
      * - stok per gudang + item + unit (lot_id = null)
      * - item_id & item_code diambil dari tabel items, bukan dari LOT
      */
+    /**
+     * Mutasi stok per ITEM (tanpa LOT) → dipakai:
+     * - WIP hasil cutting (K7BLK, K5BLK, dst)
+     * - WIP sewing, FG, dll
+     */
     public function mutateItem(
         int $warehouseId,
         int $itemId,
@@ -186,7 +193,7 @@ class InventoryService
         string $unit,
         ?string $refCode = null,
         ?string $note = null,
-        ?string $date = null, // YYYY-MM-DD
+        ?string $date = null,
         ?string $category = null
     ): void {
         $date = $date ?: now()->toDateString();
@@ -204,13 +211,13 @@ class InventoryService
             $date,
             $category
         ) {
-            // 1) INSERT ke inventory_mutations (lot_id = null)
+            // 1) catat di inventory_mutations (lot_id = null)
             DB::table('inventory_mutations')->insert([
                 'warehouse_id' => $warehouseId,
                 'category' => $category,
-                'lot_id' => null, // ⬅ FG tanpa LOT
+                'lot_id' => null,
                 'item_id' => $itemId,
-                'item_code' => $itemCode, // ⬅ K7BLK / K5BLK / K3BLK
+                'item_code' => $itemCode,
                 'type' => $type,
                 'qty_in' => $qtyIn,
                 'qty_out' => $qtyOut,
@@ -222,22 +229,22 @@ class InventoryService
                 'updated_at' => now(),
             ]);
 
-            // 2) HITUNG ULANG saldo stok untuk kombinasi (warehouse_id + item_id + unit) dengan lot_id null
+            // 2) hitung saldo per gudang+ITEM+unit (lot_id IS NULL)
             $agg = DB::table('inventory_mutations')
                 ->selectRaw('COALESCE(SUM(qty_in - qty_out), 0) as qty')
                 ->where('warehouse_id', $warehouseId)
-                ->whereNull('lot_id') // ⬅ khusus FG (tanpa LOT)
                 ->where('item_id', $itemId)
+                ->whereNull('lot_id')
                 ->where('unit', $unit)
                 ->first();
 
             $qtyNow = (float) ($agg->qty ?? 0);
 
-            // 3) UPDATE / INSERT ke inventory_stocks (per gudang + ITEM + unit, lot_id = null)
+            // 3) update / insert inventory_stocks (per gudang+ITEM+unit, lot_id = null)
             $existing = DB::table('inventory_stocks')
                 ->where('warehouse_id', $warehouseId)
-                ->whereNull('lot_id') // ⬅ stok item-based
                 ->where('item_id', $itemId)
+                ->whereNull('lot_id')
                 ->where('unit', $unit)
                 ->first();
 
@@ -245,7 +252,6 @@ class InventoryService
                 DB::table('inventory_stocks')
                     ->where('id', $existing->id)
                     ->update([
-                        'item_id' => $itemId,
                         'item_code' => $itemCode,
                         'qty' => $qtyNow,
                         'updated_at' => now(),

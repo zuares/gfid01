@@ -33,9 +33,21 @@ class ExternalTransferController extends Controller
         // Default proses = cutting (kalau tidak dipilih)
         $defaultProcess = $request->get('process', 'cutting');
 
-        // Default "Dari Gudang" = KONTRAKAN (kalau ada), bisa dioverride via query param
-        $defaultFromWarehouse = $warehouses->firstWhere('code', 'KONTRAKAN');
-        $fromWarehouseId = $request->get('from_warehouse_id');
+        // ==== Default "Dari Gudang" ====
+        // Jika process = cutting → coba RAW dulu
+        // Kalau tidak ada RAW → fallback ke KONTRAKAN
+        $defaultFromWarehouse = null;
+
+        if ($defaultProcess === 'cutting') {
+            $defaultFromWarehouse = $warehouses->firstWhere('code', 'RAW');
+        }
+
+        if (!$defaultFromWarehouse) {
+            $defaultFromWarehouse = $warehouses->firstWhere('code', 'KONTRAKAN');
+        }
+
+        // Bisa di-override via query param / old form
+        $fromWarehouseId = $request->get('from_warehouse_id', $request->old('from_warehouse_id'));
 
         if (!$fromWarehouseId && $defaultFromWarehouse) {
             $fromWarehouseId = $defaultFromWarehouse->id;
@@ -50,13 +62,13 @@ class ExternalTransferController extends Controller
         $operatorCode = $request->get('operator_code', $request->old('operator_code'));
 
         // LOT: hanya yang punya stok di gudang "from_warehouse"
-        // Kita join lots + items + inventory_stocks untuk dapat stock_remain per LOT per gudang
+        // Join lots + items + inventory_stocks untuk dapat stock_remain per LOT per gudang
         $lotsQuery = Lot::query()
             ->selectRaw('
             lots.id,
             lots.item_id,
             lots.code as lot_code,
-            lots.unit as uom,
+            lots.unit as unit,
             items.code as item_code,
             items.name as item_name,
             COALESCE(SUM(inventory_stocks.qty), 0) as stock_remain

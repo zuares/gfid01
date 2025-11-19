@@ -8,26 +8,53 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('sewing_return_lines', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('sewing_return_id');
+        Schema::create('sewing_return_lines', function (Blueprint $t) {
+            $t->id();
 
-            $table->unsignedBigInteger('sewing_pick_line_id')->nullable(); // trace balik ke pengambilan
-            $table->unsignedBigInteger('lot_id');
-            $table->unsignedBigInteger('item_id');
-            $table->string('item_code', 100);
+            // HEADER
+            $t->unsignedBigInteger('sewing_return_id');
 
-            $table->decimal('qty_ok', 18, 2)->default(0); // hasil jahit OK yang disetor
-            $table->decimal('qty_reject', 18, 2)->default(0); // hasil jahit REJECT
-            $table->string('unit', 16)->default('pcs');
+            // Link ke baris ambil jahit
+            $t->unsignedBigInteger('sewing_pick_line_id')->nullable();
 
-            $table->string('notes', 500)->nullable();
-            $table->timestamps();
+            // Stock sumber di gudang operator (SEW-EXT-EMP)
+            $t->unsignedBigInteger('stock_id')->nullable(); // inventory_stocks.id
 
-            $table->foreign('sewing_return_id')->references('id')->on('sewing_returns')->cascadeOnDelete();
-            $table->foreign('sewing_pick_line_id')->references('id')->on('sewing_pick_lines');
-            $table->foreign('lot_id')->references('id')->on('lots');
-            $table->foreign('item_id')->references('id')->on('items');
+            // Info item
+            $t->unsignedBigInteger('item_id'); // items.id
+            $t->string('item_code', 64); // K7BLK, JGRK7BLK, dll
+
+            // Qty
+            $t->decimal('qty_ok', 18, 2)->default(0); // hasil OK → boleh ke WIP-FIN
+            $t->decimal('qty_reject', 18, 2)->default(0); // hasil reject
+            $t->string('unit', 16)->default('pcs');
+
+            $t->string('notes', 255)->nullable();
+
+            $t->timestamps();
+
+            // INDEX
+            $t->index('sewing_return_id');
+            $t->index('sewing_pick_line_id');
+            $t->index('stock_id');
+            $t->index('item_id');
+            $t->index('item_code');
+
+            // FK
+            $t->foreign('sewing_return_id')
+                ->references('id')->on('sewing_returns')
+                ->cascadeOnDelete();
+
+            $t->foreign('sewing_pick_line_id')
+                ->references('id')->on('sewing_pick_lines')
+                ->nullOnDelete();
+
+            $t->foreign('stock_id')
+                ->references('id')->on('inventory_stocks')
+                ->nullOnDelete();
+
+            $t->foreign('item_id')
+                ->references('id')->on('items');
         });
     }
 

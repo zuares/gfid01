@@ -31,6 +31,15 @@
             background: var(--card);
             z-index: 1;
         }
+
+        @media (max-width: 767.98px) {
+
+            /* Di mobile: hanya tampilkan No, Item, Qty, QC, Catatan
+                   Kolom Bundle, LOT, Unit disembunyikan */
+            .col-mobile-hide {
+                display: none;
+            }
+        }
     </style>
 @endpush
 
@@ -101,6 +110,12 @@
         <form method="POST" action="{{ route('production.wip_cutting_qc.update', $batch->id) }}">
             @csrf
 
+            {{-- 🔹 Kirim qty_planned sekali saja ke controller (total semua material) --}}
+            @php
+                $qtyPlannedTotal = $batch->materials->sum('qty_planned');
+            @endphp
+            <input type="hidden" name="qty_planned" value="{{ $qtyPlannedTotal }}">
+
             <div class="card mb-3">
                 <div class="p-3 border-bottom d-flex align-items-center">
                     <div>
@@ -113,11 +128,19 @@
                     <table class="table table-sm mb-0 align-middle">
                         <thead>
                             <tr>
-                                <th class="sticky">Bundle</th>
-                                <th class="sticky">LOT Sumber</th>
+                                {{-- No (tampil di semua ukuran layar) --}}
+                                <th class="sticky text-center" style="width: 1%;">No</th>
+
+                                {{-- Bundle & LOT hanya tampil di desktop/tablet --}}
+                                <th class="sticky col-mobile-hide">Bundle</th>
+                                <th class="sticky col-mobile-hide">LOT Sumber</th>
+
                                 <th class="sticky">Item</th>
                                 <th class="sticky text-end">Qty</th>
-                                <th class="sticky">Unit</th>
+
+                                {{-- Unit hanya untuk desktop --}}
+                                <th class="sticky col-mobile-hide">Unit</th>
+
                                 <th class="sticky text-center">QC</th>
                                 <th class="sticky">Catatan QC</th>
                             </tr>
@@ -133,28 +156,46 @@
                                     $previewOk = max($qtyCut - (int) $oldReject, 0);
                                 @endphp
                                 <tr>
-                                    <td>
-                                        <div class="mono fw-semibold">{{ $b->bundle_code }}</div>
-                                        <div class="help">No: {{ $b->bundle_no }}</div>
+                                    {{-- No urut, tidak perlu di-controller --}}
+                                    <td class="text-center mono">
+                                        {{ $loop->iteration }}
                                         <input type="hidden" name="bundles[{{ $index }}][id]"
                                             value="{{ $b->id }}">
                                     </td>
-                                    <td class="mono">{{ $b->lot->code ?? '-' }}</td>
+
+                                    {{-- Bundle: sembunyi di mobile --}}
+                                    <td class="col-mobile-hide">
+                                        <div class="mono fw-semibold">{{ $b->bundle_code }}</div>
+                                        <div class="help">No: {{ $b->bundle_no }}</div>
+                                    </td>
+
+                                    {{-- LOT: sembunyi di mobile --}}
+                                    <td class="mono col-mobile-hide">{{ $b->lot->code ?? '-' }}</td>
+
                                     <td>
                                         <div class="fw-semibold">{{ $b->item->name ?? '-' }}</div>
                                         <div class="help mono">{{ $b->item_code }}</div>
                                     </td>
-                                    <td class="text-end mono">{{ number_format($b->qty_cut, 0) }}</td>
-                                    <td>{{ $b->unit }}</td>
 
-                                    {{-- input defect --}}
+                                    <td class="text-end mono">{{ number_format($b->qty_cut, 0) }}</td>
+
+                                    {{-- Unit: sembunyi di mobile --}}
+                                    <td class="col-mobile-hide">{{ $b->unit }}</td>
+
+                                    {{-- input defect / QC --}}
                                     <td class="text-center">
-                                        <div class="small text-muted mb-1">Defect / Reject (pcs)</div>
+                                        {{-- Desktop: tetap tampil label "Defect / Reject (pcs)" --}}
+                                        <div class="small text-muted mb-1 d-none d-md-block">
+                                            Defect / Reject (pcs)
+                                        </div>
+
+                                        {{-- Mobile: langsung ke input QC (tanpa label di atas) --}}
                                         <input type="number" name="bundles[{{ $index }}][qty_reject]"
                                             class="form-control form-control-sm text-end mono" min="0"
                                             max="{{ $qtyCut }}" value="{{ $oldReject }}">
+
                                         <div class="help">
-                                            OK ≈ {{ $previewOk }} pcs dari {{ $qtyCut }}
+                                            OK ≈ {{ $previewOk }} dari {{ $qtyCut }}
                                         </div>
                                     </td>
 
@@ -166,14 +207,12 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="7" class="text-center text-muted small py-3">
+                                    <td colspan="8" class="text-center text-muted small py-3">
                                         Tidak ada data iket. Input dulu di modul Cutting.
                                     </td>
                                 </tr>
                             @endforelse
                         </tbody>
-
-
                     </table>
                 </div>
 
@@ -187,3 +226,18 @@
         </form>
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Kalau mobile, fokus langsung ke input QC pertama
+            if (window.matchMedia('(max-width: 767.98px)').matches) {
+                const firstQcInput = document.querySelector('input[name^="bundles"][name$="[qty_reject]"]');
+                if (firstQcInput) {
+                    firstQcInput.focus();
+                    firstQcInput.select?.();
+                }
+            }
+        });
+    </script>
+@endpush

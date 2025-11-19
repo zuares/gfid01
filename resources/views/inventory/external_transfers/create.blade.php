@@ -47,12 +47,6 @@
             white-space: nowrap;
         }
 
-        @media (max-width: 767.98px) {
-            .table-wrap {
-                overflow-x: auto;
-            }
-        }
-
         .btn-icon {
             padding-inline: .45rem;
         }
@@ -63,6 +57,27 @@
             font-size: .7rem;
             border: 1px solid var(--line);
             background: rgba(148, 163, 184, .12);
+        }
+
+        @media (max-width: 767.98px) {
+            .table-wrap {
+                overflow-x: auto;
+            }
+
+            /* Di mobile: hanya tampil Item, Stok, Qty Kirim (+ checkbox) */
+            #lines-table th:nth-child(2),
+            #lines-table td:nth-child(2),
+            /* LOT */
+            #lines-table th:nth-child(6),
+            #lines-table td:nth-child(6),
+            /* Unit */
+            #lines-table th:nth-child(7),
+            #lines-table td:nth-child(7)
+
+            /* Catatan */
+                {
+                display: none;
+            }
         }
     </style>
 @endpush
@@ -173,7 +188,7 @@
                                 @endforeach
                             </select>
                             <div class="help">
-                                Gudang asal barang saat ini. Default: <span class="mono">KONTRAKAN</span> (jika ada).
+                                Gudang asal barang saat ini. Default: <span class="mono">RAW</span> (jika ada di DB).
                                 Mengganti gudang akan me-refresh daftar LOT.
                             </div>
                             @error('from_warehouse_id')
@@ -181,18 +196,23 @@
                             @enderror
                         </div>
 
-                        {{-- KE GUDANG (CODE AUTO, DI BACKEND DISAMAKAN DGN / DIBUAT DI warehouses) --}}
+                        {{-- KE GUDANG (CODE AUTO, DISABLED UNTUK USER) --}}
                         <div class="col-12 col-md-4">
                             <label class="form-label small required">Ke Gudang / Vendor</label>
+
+                            {{-- nilai yang benar-benar dikirim ke backend --}}
+                            <input type="hidden" name="to_warehouse_code" id="to-warehouse-code-hidden"
+                                value="{{ old('to_warehouse_code', $autoToWarehouseCode ?? '') }}">
+
+                            {{-- tampilan saja, disabled --}}
                             <input type="text" class="form-control form-control-sm mono" id="to-warehouse-code-display"
-                                name="to_warehouse_code" value="{{ old('to_warehouse_code', $autoToWarehouseCode ?? '') }}"
-                                readonly>
+                                value="{{ old('to_warehouse_code', $autoToWarehouseCode ?? '') }}" disabled>
+
                             <div class="help">
                                 Diisi otomatis dengan pola <span class="mono">CUT-EXT-[EMP]</span> untuk cutting,
                                 misalnya <span class="mono">CUT-EXT-MRF</span>. Jika proses atau operator belum dipilih,
                                 kolom ini akan kosong.
                             </div>
-                            {{-- jika mau pakai ID gudang di backend, bisa isi hidden di controller saat store --}}
                         </div>
 
                         {{-- CATATAN --}}
@@ -242,7 +262,7 @@
                                     <th style="min-width: 200px;">Item</th>
                                     <th style="min-width: 80px;" class="text-end">Stok</th>
                                     <th style="min-width: 120px;" class="text-end">Qty Kirim</th>
-                                    <th style="min-width: 80px;">Satuan</th>
+                                    <th style="min-width: 80px;">Unit</th>
                                     <th style="min-width: 150px;">Catatan</th>
                                 </tr>
                             </thead>
@@ -251,7 +271,8 @@
                                     @php
                                         $rowOld = $oldLines[$idx] ?? [];
                                         $oldQty = $rowOld['qty'] ?? '';
-                                        $oldUom = $rowOld['uom'] ?? $lot->uom;
+                                        // kirim UNIT, bukan uom
+                                        $oldUnit = $rowOld['unit'] ?? ($lot->unit ?? $lot->uom);
                                         $oldNotes = $rowOld['notes'] ?? '';
                                     @endphp
                                     <tr>
@@ -295,11 +316,11 @@
                                                 value="{{ $oldQty !== '' ? $oldQty : '' }}">
                                         </td>
 
-                                        {{-- UOM --}}
+                                        {{-- UNIT (BUKAN UOM) --}}
                                         <td>
-                                            <input type="text" name="lines[{{ $idx }}][uom]"
+                                            <input type="text" name="lines[{{ $idx }}][unit]"
                                                 class="form-control form-control-sm text-center mono"
-                                                value="{{ $oldUom }}">
+                                                value="{{ $oldUnit }}">
                                         </td>
 
                                         {{-- NOTES --}}
@@ -352,6 +373,7 @@
             const opSelect = document.getElementById('operator-select');
             const fromWhSelect = document.getElementById('from-warehouse-select');
             const toWhDisplay = document.getElementById('to-warehouse-code-display');
+            const toWhHidden = document.getElementById('to-warehouse-code-hidden');
             const tbody = document.querySelector('#lines-table tbody');
             const checkAll = document.getElementById('check-all');
 
@@ -371,13 +393,14 @@
             }
 
             function updateAutoToWarehouse() {
-                if (!procSelect || !opSelect || !toWhDisplay) return;
+                if (!procSelect || !opSelect) return;
 
                 const proc = (procSelect.value || '').trim();
                 const opCode = (opSelect.value || '').trim();
 
                 if (!proc || !opCode) {
-                    toWhDisplay.value = '';
+                    if (toWhDisplay) toWhDisplay.value = '';
+                    if (toWhHidden) toWhHidden.value = '';
                     return;
                 }
 
@@ -386,7 +409,9 @@
 
                 // contoh: CUT-EXT-MRF
                 const autoCode = `${proc3}-EXT-${op3}`.toUpperCase();
-                toWhDisplay.value = autoCode;
+
+                if (toWhDisplay) toWhDisplay.value = autoCode;
+                if (toWhHidden) toWhHidden.value = autoCode;
             }
 
             function rebuildOperatorOptions() {
@@ -427,6 +452,41 @@
                 if (op) url.searchParams.set('operator_code', op);
 
                 window.location.href = url.toString();
+            }
+
+            function findRawWarehouse() {
+                if (!Array.isArray(warehouses)) return null;
+                return warehouses.find(w => (w.code || '').toUpperCase() === 'RAW') || null;
+            }
+
+            // Jika proses cutting, auto pilih gudang RAW
+            function autoSelectWarehouseForCutting(options) {
+                const opts = Object.assign({
+                    onlyIfEmpty: false,
+                    reload: true
+                }, options || {});
+
+                if (!fromWhSelect || !procSelect) return;
+
+                const procVal = (procSelect.value || '').toLowerCase();
+                if (procVal !== 'cutting') return;
+
+                const rawWh = findRawWarehouse();
+                if (!rawWh) return;
+
+                if (opts.onlyIfEmpty && fromWhSelect.value) {
+                    return;
+                }
+
+                if (String(fromWhSelect.value || '') === String(rawWh.id)) {
+                    return;
+                }
+
+                fromWhSelect.value = rawWh.id;
+
+                if (opts.reload) {
+                    reloadByWarehouseChange();
+                }
             }
 
             function initLotCheckboxes() {
@@ -532,10 +592,8 @@
                         if (chk.checked) {
                             selectedCount++;
                         } else {
-                            // baris tidak dipilih → disable input2 supaya tidak terkirim
+                            // baris tidak dipilih → disable input supaya tidak terkirim
                             tr.querySelectorAll('input, select, textarea').forEach(el => {
-                                // jangan disable lot_id & item_id kalau mau tetap diproses backend,
-                                // tapi di skenario ini kita disable semua untuk baris tak terpilih
                                 el.disabled = true;
                             });
                         }
@@ -552,6 +610,11 @@
                 procSelect?.addEventListener('change', () => {
                     rebuildOperatorOptions();
                     updateAutoToWarehouse();
+                    // kalau ganti ke cutting, auto RAW
+                    autoSelectWarehouseForCutting({
+                        onlyIfEmpty: false,
+                        reload: true
+                    });
                 });
 
                 opSelect?.addEventListener('change', () => {
@@ -564,6 +627,13 @@
 
                 rebuildOperatorOptions();
                 updateAutoToWarehouse();
+
+                // Saat pertama kali buka, kalau proses = cutting dan belum pilih gudang → auto RAW + reload
+                autoSelectWarehouseForCutting({
+                    onlyIfEmpty: true,
+                    reload: true
+                });
+
                 initLotCheckboxes();
                 initFormSubmission();
             }

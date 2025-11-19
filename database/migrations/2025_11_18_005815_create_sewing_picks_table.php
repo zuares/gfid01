@@ -8,25 +8,35 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('sewing_picks', function (Blueprint $table) {
-            $table->id();
-            $table->string('code', 50)->unique(); // SEW-PICK-250118-001
-            $table->date('date'); // tanggal dokumen
+        Schema::create('sewing_picks', function (Blueprint $t) {
+            $t->id();
 
-            $table->unsignedBigInteger('operator_id')->nullable(); // penjahit, kalau sudah ada tabel employees/operator
-            $table->unsignedBigInteger('from_warehouse_id'); // WIP-CUT
-            $table->unsignedBigInteger('to_warehouse_id'); // gudang operator / WIP-SEW
+            $t->string('code', 64)->unique(); // SEW-PICK-YYMMDD-###
+            $t->date('date');
 
-            $table->string('status', 20)->default('draft'); // draft / posted / cancelled
-            $table->string('notes', 500)->nullable();
+            // operator jahit
+            $t->foreignId('operator_id')
+                ->constrained('employees');
 
-            $table->unsignedBigInteger('created_by')->nullable(); // user id yang input
-            $table->timestamps();
+            // gudang asal: biasanya WIP-SEW
+            $t->foreignId('from_warehouse_id')
+                ->constrained('warehouses');
 
-            // FK optional (hapus kalau belum ada tabelnya)
-            // $table->foreign('operator_id')->references('id')->on('employees');
-            $table->foreign('from_warehouse_id')->references('id')->on('warehouses');
-            $table->foreign('to_warehouse_id')->references('id')->on('warehouses');
+            // gudang tujuan: SEW-EXT-[EMP]
+            $t->foreignId('to_warehouse_id')
+                ->constrained('warehouses');
+
+            $t->string('status', 32)->default('posted'); // draft/posted kalau mau
+            $t->text('notes')->nullable();
+
+            $t->foreignId('created_by')
+                ->nullable()
+                ->constrained('users');
+
+            $t->timestamps();
+
+            $t->index('date');
+            $t->index('operator_id');
         });
     }
 

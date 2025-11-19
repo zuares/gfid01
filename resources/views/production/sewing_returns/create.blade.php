@@ -153,23 +153,25 @@
                             </div>
                         </div>
 
-                        {{-- DARI GUDANG (SEW-EXT-EMP) --}}
+                        {{-- DARI GUDANG (Operator) --}}
                         <div class="col-md-3">
                             <label class="form-label small">Dari Gudang (Operator)</label>
                             <input type="text" class="form-control form-control-sm mono"
-                                value="{{ $fromWarehouse ? $fromWarehouse->code . ' — ' . $fromWarehouse->name : 'Otomatis SEW-EXT-[EMPCODE]' }}"
+                                value="{{ $fromWarehouse ? $fromWarehouse->code . ' — ' . $fromWarehouse->name : 'Otomatis mengikuti gudang tujuan Ambil Jahit' }}"
                                 disabled>
+                            {{-- input hidden ini sudah tidak dipakai controller, hanya untuk display --}}
                             <input type="hidden" name="from_warehouse_id" value="{{ $fromWarehouse?->id }}">
                             <div class="help mt-1">
-                                Otomatis <span class="mono">SEW-EXT-EMPCODE</span>. Dibuat jika belum ada.
+                                Mengikuti <span class="mono">to_warehouse</span> pada dokumen Ambil Jahit operator ini.
                             </div>
                         </div>
 
                         {{-- KE GUDANG (WIP-FIN) --}}
                         <div class="col-md-3">
-                            <label class="form-label small">Ke Gudang (WIP Sewing / Finishing)</label>
+                            <label class="form-label small">Ke Gudang (WIP Finishing)</label>
                             <input type="text" class="form-control form-control-sm mono"
                                 value="{{ $toWarehouse->code . ' — ' . $toWarehouse->name }}" disabled>
+                            {{-- sama, hidden ini hanya informasi, controller tidak membacanya --}}
                             <input type="hidden" name="to_warehouse_id" value="{{ $toWarehouse->id }}">
                             <div class="help mt-1">
                                 Otomatis <span class="mono">WIP-FIN</span>.
@@ -203,7 +205,6 @@
                             <thead>
                                 <tr>
                                     <th style="width: 40px;" class="text-center">
-                                        {{-- optional: bisa tambah select-all nanti --}}
                                         Ambil
                                     </th>
                                     <th style="width: 40px;">#</th>
@@ -224,6 +225,8 @@
                                         $picked = (float) $line->qty;
                                         $returned = (float) ($line->total_ok ?? 0) + (float) ($line->total_reject ?? 0);
                                         $remain = max(0, $picked - $returned);
+
+                                        $stock = $line->stock; // relasi InventoryStock
                                     @endphp
                                     <tr>
                                         {{-- CHECKBOX --}}
@@ -261,17 +264,20 @@
                                             <div class="fw-semibold mono">{{ $line->item_code }}</div>
                                             <div class="small text-muted">
                                                 LOT:
-                                                <span class="badge-lot mono">
-                                                    #{{ $line->lot_id }}
-                                                </span>
+                                                @if ($stock && $stock->lot_id)
+                                                    <span class="badge-lot mono">
+                                                        #{{ $stock->lot_id }}
+                                                    </span>
+                                                @else
+                                                    <span class="text-muted">tanpa LOT</span>
+                                                @endif
                                             </div>
 
+                                            {{-- field ini tidak dipakai di controller, tapi tetap dikirim kalau suatu saat perlu --}}
                                             <input type="hidden" name="lines[{{ $idx }}][item_id]"
                                                 value="{{ $line->item_id }}">
                                             <input type="hidden" name="lines[{{ $idx }}][item_code]"
                                                 value="{{ $line->item_code }}">
-                                            <input type="hidden" name="lines[{{ $idx }}][lot_id]"
-                                                value="{{ $line->lot_id }}">
                                             <input type="hidden" name="lines[{{ $idx }}][unit]"
                                                 value="{{ $line->unit }}">
                                         </td>

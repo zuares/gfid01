@@ -9,11 +9,11 @@ class SupplierSeeder extends Seeder
 {
     public function run(): void
     {
-        DB::table('suppliers')->updateOrInsert(['code' => 'SUPP-001'], [
-            'name' => 'CV Tekstil Makmur', 'phone' => '0812xxxx', 'address' => 'Bandung', 'created_at' => now(), 'updated_at' => now(),
+        DB::table('suppliers')->updateOrInsert(['code' => 'TPL'], [
+            'name' => 'Toplis Jaya', 'phone' => '0812xxxx', 'address' => 'Cibolerang', 'created_at' => now(), 'updated_at' => now(),
         ]);
-        DB::table('suppliers')->updateOrInsert(['code' => 'SUPP-002'], [
-            'name' => 'UD Bahan Pendukung', 'phone' => '0813xxxx', 'address' => 'Jakarta', 'created_at' => now(), 'updated_at' => now(),
+        DB::table('suppliers')->updateOrInsert(['code' => 'ORG'], [
+            'name' => 'Origami', 'phone' => '0813xxxx', 'address' => 'Cikeueus', 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 }

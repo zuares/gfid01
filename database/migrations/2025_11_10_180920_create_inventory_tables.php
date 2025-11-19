@@ -12,14 +12,20 @@ return new class extends Migration
         Schema::create('inventory_stocks', function (Blueprint $t) {
             $t->id();
             $t->unsignedBigInteger('warehouse_id');
-            $t->unsignedBigInteger('lot_id');
+            $t->unsignedBigInteger('stock_id')->nullable();
+            $t->unsignedBigInteger('lot_id')->nullable(); // <-- typo diperbaiki
             $t->unsignedBigInteger('item_id');
-            $t->string('item_code');
+            $t->string('item_code', 64);
             $t->string('unit', 16);
-            $t->decimal('qty', 18, 4)->default(0);
+            $t->decimal('qty', 18, 2)->default(0);
             $t->timestamps();
 
-            $t->unique(['warehouse_id', 'lot_id', 'unit']); // 1 gudang, 1 lot, 1 unit
+            // 🔹 Satu baris stok = per gudang + item + lot(optional) + unit
+            $t->unique(['warehouse_id', 'item_id', 'lot_id', 'unit']);
+
+            $t->index('warehouse_id');
+            $t->index('item_id');
+            $t->index('lot_id');
         });
 
         // jejak mutasi (ledger)
@@ -27,7 +33,7 @@ return new class extends Migration
             $t->id();
             $t->unsignedBigInteger('warehouse_id');
             $t->string('category', 30)->nullable()->after('warehouse_id');
-            $t->unsignedBigInteger('lot_id');
+            $t->unsignedBigInteger('lot_id')->nullable();
             $t->unsignedBigInteger('item_id');
             $t->string('item_code');
             $t->string('type'); // PURCHASE_IN, CUTTING_OUT, etc.

@@ -8,24 +8,45 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('sewing_returns', function (Blueprint $table) {
-            $table->id();
-            $table->string('code', 50)->unique(); // SEW-RET-250118-001
-            $table->date('date');
+        Schema::create('sewing_returns', function (Blueprint $t) {
+            $t->id();
 
-            $table->unsignedBigInteger('operator_id')->nullable(); // penjahit yang setor
-            $table->unsignedBigInteger('from_warehouse_id'); // gudang operator (SEW-EXT-XXX)
-            $table->unsignedBigInteger('to_warehouse_id'); // WIP-SEW / WIP-FINISH
+            $t->string('code', 64)->unique(); // SEW-RET-YYMMDD-###
+            $t->date('date');
 
-            $table->string('status', 20)->default('draft'); // draft / posted / cancelled
-            $table->string('notes', 500)->nullable();
+            // Operator jahit
+            $t->foreignId('operator_id')
+                ->constrained('employees');
 
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->timestamps();
+            // Gudang asal: SEW-EXT-[OP]
+            $t->foreignId('from_warehouse_id')
+                ->constrained('warehouses');
 
-            // $table->foreign('operator_id')->references('id')->on('employees');
-            $table->foreign('from_warehouse_id')->references('id')->on('warehouses');
-            $table->foreign('to_warehouse_id')->references('id')->on('warehouses');
+            // Gudang tujuan: WIP-FIN (atau lain kalau nanti mau)
+            $t->foreignId('to_warehouse_id')
+                ->constrained('warehouses');
+
+            $t->string('status', 32)->default('draft'); // draft / posted
+
+            // Rekap qty (optional tapi enak buat laporan)
+            $t->decimal('total_ok_qty', 18, 2)->default(0);
+            $t->decimal('total_reject_qty', 18, 2)->default(0);
+
+            $t->text('notes')->nullable();
+
+            $t->foreignId('created_by')
+                ->nullable()
+                ->constrained('users');
+
+            // Waktu posting (untuk jejak)
+            $t->timestamp('posted_at')->nullable();
+
+            $t->timestamps();
+
+            // Index tambahan
+            $t->index('date');
+            $t->index('operator_id');
+            $t->index('status');
         });
     }
 

@@ -45,6 +45,8 @@ class MutationController extends Controller
                 // Dibungkus dalam group supaya OR tidak "kabur" dari filter lain
                 $w->where(function ($q) use ($itemCode, $hasItemCodeCol) {
                     if ($hasItemCodeCol) {
+                        // 1) Mutasi item-based (WIP/FG) → pakai m.item_code
+                        // 2) Mutasi lot-based (raw) → pakai it.code dari LOT
                         $q->where('m.item_code', $itemCode)
                             ->orWhere(function ($x) use ($itemCode) {
                                 $x->whereNull('m.item_code')
@@ -62,6 +64,9 @@ class MutationController extends Controller
             ->when($q, fn($w) => $w->where(function ($x) use ($q) {
                 $x->where('m.ref_code', 'like', "%{$q}%")
                     ->orWhere('m.note', 'like', "%{$q}%")
+                // 🔹 Cari juga di item_code mutasi (K7BLK / K5BLK / dll)
+                    ->orWhere('m.item_code', 'like', "%{$q}%")
+                // 🔹 Untuk mutasi lama yang masih LOT-based, pakai it.*
                     ->orWhere('it.name', 'like', "%{$q}%")
                     ->orWhere('it.code', 'like', "%{$q}%");
             }));
@@ -84,6 +89,8 @@ class MutationController extends Controller
             'm.date',
             'm.note',
             'm.warehouse_id',
+            // 🔹 Kalau m.item_code ada (WIP/FG), pakai itu.
+            //    Kalau tidak ada, fallback ke it.code (dari LOT kain).
             DB::raw('COALESCE(m.item_code, it.code) as item_code'),
             DB::raw('COALESCE(l.unit_cost, 0) as unit_cost'),
         ]);
@@ -174,6 +181,8 @@ class MutationController extends Controller
                 'warehouse:id,name,code',
                 'lot:id,code,unit,unit_cost,item_id',
                 'lot.item:id,code,name',
+                // 🔹 Untuk mutasi item-based (lot_id null), kita load juga relasi item langsung
+                'item:id,code,name',
             ])
             ->findOrFail($id);
 
@@ -197,9 +206,9 @@ class MutationController extends Controller
             }
         }
 
-        // Pasangan transfer (IN/OUT) dengan ref_code & lot_id sama
+        // Pasangan transfer (IN/OUT) dengan ref_code & lot_id sama (khusus transfer lot-based)
         $transferPartner = null;
-        if (in_array($mutation->type, ['TRANSFER_IN', 'TRANSFER_OUT'], true) && $mutation->ref_code) {
+        if (in_array($mutation->type, ['TRANSFER_IN', 'TRANSFER_OUT'], true) && $mutation->ref_code && $mutation->lot_id) {
             $pair = InventoryMutation::query()
                 ->where('ref_code', $mutation->ref_code)
                 ->where('lot_id', $mutation->lot_id)
@@ -228,7 +237,7 @@ class MutationController extends Controller
             }
         }
 
-        // Riwayat mutasi untuk LOT yang sama (kronologis)
+        // Riwayat mutasi untuk LOT yang sama (kronologis) → hanya untuk mutasi lot-based
         $lotHistory = null;
         if ($mutation->lot_id) {
             $lotHistory = InventoryMutation::query()
@@ -238,6 +247,8 @@ class MutationController extends Controller
                 ->with('warehouse:id,name,code')
                 ->get(['id', 'warehouse_id', 'type', 'qty_in', 'qty_out', 'unit', 'date', 'lot_id']);
         }
+
+        // (Opsional) Kalau nanti mau histori per item untuk item-based, bisa tambahin $itemHistory.
 
         return view('inventory.mutations.show', compact(
             'mutation',

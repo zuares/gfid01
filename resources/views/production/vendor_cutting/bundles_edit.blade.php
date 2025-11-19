@@ -31,6 +31,62 @@
             background: var(--card);
             z-index: 1;
         }
+
+        /* ===== MOBILE FRIENDLY DAFTAR IKET ===== */
+        @media (max-width: 767.98px) {
+
+            /* header tabel daftar iket disembunyikan di mobile */
+            #bundles-table thead {
+                display: none;
+            }
+
+            /* setiap baris jadi seperti kartu penuh */
+            #bundles-table tbody tr {
+                display: block;
+                margin-bottom: .75rem;
+                padding: .75rem .75rem .5rem;
+                border-radius: 10px;
+                border: 1px solid var(--line);
+                background: var(--card);
+            }
+
+            #bundles-table tbody td {
+                display: block;
+                width: 100%;
+                padding: .25rem 0;
+            }
+
+            /* label kecil di atas field, hanya di mobile */
+            .field-label {
+                font-size: .8rem;
+                color: var(--muted);
+                margin-bottom: .15rem;
+            }
+
+            .bundles-footer {
+                position: sticky;
+                bottom: 0;
+                z-index: 5;
+                background: var(--card);
+                border-top: 1px solid var(--line);
+            }
+
+            .bundles-footer-inner {
+                display: flex;
+                justify-content: space-between;
+                gap: .5rem;
+            }
+
+            .bundles-footer-inner .btn {
+                flex: 1 1 0;
+            }
+        }
+
+        @media (min-width: 768px) {
+            .bundles-footer {
+                position: static;
+            }
+        }
     </style>
 @endpush
 
@@ -107,21 +163,25 @@
             <div class="card mb-3">
                 <div class="p-3 border-bottom">
                     <div class="fw-semibold">Daftar Iket / Bundle</div>
-                    <div class="help">Isi hasil cutting per iket. Kamu bisa tambah/hapus baris.</div>
+                    <div class="help">
+                        Isi hasil cutting per iket.
+                        <span class="d-none d-md-inline">Kamu bisa tambah/hapus baris.</span>
+                        <span class="d-inline d-md-none">Di mobile cukup pilih LOT, item, dan QTY.</span>
+                    </div>
                 </div>
 
-                <div class="p-2 table-responsive">
+                <div class="p-2">
                     <table class="table table-sm align-middle mb-0" id="bundles-table">
                         <thead>
                             <tr>
                                 <th>LOT Sumber</th>
                                 <th>Item Hasil</th>
-                                <th>Kode Bundle</th>
-                                <th>No</th>
+                                <th class="d-none d-md-table-cell">Kode Bundle</th>
+                                <th class="d-none d-md-table-cell">No</th>
                                 <th class="text-end">Qty</th>
-                                <th>Unit</th>
-                                <th>Catatan</th>
-                                <th></th>
+                                <th class="d-none d-md-table-cell">Unit</th>
+                                <th class="d-none d-md-table-cell">Catatan</th>
+                                <th class="text-end d-none d-md-table-cell"></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -131,7 +191,9 @@
 
                             @forelse ($oldBundles as $idx => $b)
                                 <tr>
+                                    {{-- LOT --}}
                                     <td>
+                                        <div class="d-md-none field-label">LOT Sumber</div>
                                         <select name="bundles[{{ $idx }}][lot_id]"
                                             class="form-select form-select-sm" required>
                                             <option value="">- pilih LOT -</option>
@@ -142,7 +204,10 @@
                                             @endforeach
                                         </select>
                                     </td>
+
+                                    {{-- ITEM --}}
                                     <td>
+                                        <div class="d-md-none field-label">Item Hasil</div>
                                         <select name="bundles[{{ $idx }}][item_id]"
                                             class="form-select form-select-sm" required>
                                             <option value="">- pilih item -</option>
@@ -153,30 +218,44 @@
                                             @endforeach
                                         </select>
                                     </td>
-                                    <td>
+
+                                    {{-- KODE BUNDLE (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="text" name="bundles[{{ $idx }}][bundle_code]"
                                             class="form-control form-control-sm mono" value="{{ $b['bundle_code'] ?? '' }}"
                                             placeholder="Auto jika dikosongkan">
                                     </td>
-                                    <td>
+
+                                    {{-- NO (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="number" name="bundles[{{ $idx }}][bundle_no]"
                                             class="form-control form-control-sm" value="{{ $b['bundle_no'] ?? $idx + 1 }}">
                                     </td>
+
+                                    {{-- QTY (tetap tampil di mobile + placeholder) --}}
                                     <td class="text-end">
+                                        <div class="d-md-none field-label">Qty Potong</div>
                                         <input type="number" step="1" min="1"
                                             name="bundles[{{ $idx }}][qty_cut]"
                                             class="form-control form-control-sm text-end mono"
-                                            value="{{ $b['qty_cut'] ?? ($b['qty_cut'] ?? '') }}" required>
+                                            value="{{ $b['qty_cut'] ?? ($b['qty_cut'] ?? '') }}" placeholder="Qty potong"
+                                            required>
                                     </td>
-                                    <td>
+
+                                    {{-- UNIT (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="text" name="bundles[{{ $idx }}][unit]"
                                             class="form-control form-control-sm" value="{{ $b['unit'] ?? 'pcs' }}">
                                     </td>
-                                    <td>
+
+                                    {{-- CATATAN (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="text" name="bundles[{{ $idx }}][notes]"
                                             class="form-control form-control-sm" value="{{ $b['notes'] ?? '' }}">
                                     </td>
-                                    <td class="text-end">
+
+                                    {{-- HAPUS (desktop only) --}}
+                                    <td class="text-end d-none d-md-table-cell">
                                         <button type="button" class="btn btn-sm btn-outline-danger btn-remove-row">
                                             <i class="bi bi-x"></i>
                                         </button>
@@ -185,7 +264,9 @@
                             @empty
                                 {{-- 1 baris kosong default --}}
                                 <tr>
+                                    {{-- LOT --}}
                                     <td>
+                                        <div class="d-md-none field-label">LOT Sumber</div>
                                         <select name="bundles[0][lot_id]" class="form-select form-select-sm" required>
                                             <option value="">- pilih LOT -</option>
                                             @foreach ($lots as $lot)
@@ -193,7 +274,10 @@
                                             @endforeach
                                         </select>
                                     </td>
+
+                                    {{-- ITEM --}}
                                     <td>
+                                        <div class="d-md-none field-label">Item Hasil</div>
                                         <select name="bundles[0][item_id]" class="form-select form-select-sm" required>
                                             <option value="">- pilih item -</option>
                                             @foreach ($items as $item)
@@ -202,27 +286,41 @@
                                             @endforeach
                                         </select>
                                     </td>
-                                    <td>
+
+                                    {{-- KODE BUNDLE (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="text" name="bundles[0][bundle_code]"
                                             class="form-control form-control-sm mono" placeholder="Auto jika dikosongkan">
                                     </td>
-                                    <td>
+
+                                    {{-- NO (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="number" name="bundles[0][bundle_no]"
                                             class="form-control form-control-sm" value="1">
                                     </td>
+
+                                    {{-- QTY --}}
                                     <td class="text-end">
+                                        <div class="d-md-none field-label">Qty Potong</div>
                                         <input type="number" step="1" min="1" name="bundles[0][qty_cut]"
-                                            class="form-control form-control-sm text-end mono" required>
+                                            class="form-control form-control-sm text-end mono" placeholder="Qty potong"
+                                            required>
                                     </td>
-                                    <td>
-                                        <input type="text" name="bundles[0][unit]" class="form-control form-control-sm"
-                                            value="pcs">
+
+                                    {{-- UNIT (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
+                                        <input type="text" name="bundles[0][unit]"
+                                            class="form-control form-control-sm" value="pcs">
                                     </td>
-                                    <td>
+
+                                    {{-- CATATAN (desktop only) --}}
+                                    <td class="d-none d-md-table-cell">
                                         <input type="text" name="bundles[0][notes]"
                                             class="form-control form-control-sm">
                                     </td>
-                                    <td class="text-end">
+
+                                    {{-- HAPUS (desktop only) --}}
+                                    <td class="text-end d-none d-md-table-cell">
                                         <button type="button" class="btn btn-sm btn-outline-danger btn-remove-row">
                                             <i class="bi bi-x"></i>
                                         </button>
@@ -233,19 +331,20 @@
                     </table>
                 </div>
 
-                <div class="p-3 border-top d-flex justify-content-between align-items-center">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-add-row">
-                        <i class="bi bi-plus-circle"></i> Tambah Baris
-                    </button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-save"></i> Simpan Hasil Cutting
-                    </button>
+                <div class="p-3 bundles-footer">
+                    <div class="bundles-footer-inner">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-add-row">
+                            <i class="bi bi-plus-circle"></i> Tambah Baris
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Simpan Hasil Cutting
+                        </button>
+                    </div>
                 </div>
             </div>
         </form>
     </div>
 
-    {{-- Simple JS untuk tambah/hapus baris --}}
     @push('scripts')
         <script>
             (function() {
@@ -277,46 +376,51 @@
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                <td>
-                    <select name="bundles[${idx}][lot_id]" class="form-select form-select-sm" required>
-                        <option value="">- pilih LOT -</option>
-                        ${lotsOptions}
-                    </select>
-                </td>
-                <td>
-                    <select name="bundles[${idx}][item_id]" class="form-select form-select-sm" required>
-                        <option value="">- pilih item -</option>
-                        ${itemsOptions}
-                    </select>
-                </td>
-                <td>
-                    <input type="text" name="bundles[${idx}][bundle_code]"
-                           class="form-control form-control-sm mono"
-                           placeholder="Auto jika dikosongkan">
-                </td>
-                <td>
-                    <input type="number" name="bundles[${idx}][bundle_no]"
-                           class="form-control form-control-sm" value="${idx+1}">
-                </td>
-                <td class="text-end">
-                    <input type="number" step="1" min="1"
-                           name="bundles[${idx}][qty_cut]"
-                           class="form-control form-control-sm text-end mono" required>
-                </td>
-                <td>
-                    <input type="text" name="bundles[${idx}][unit]"
-                           class="form-control form-control-sm" value="pcs">
-                </td>
-                <td>
-                    <input type="text" name="bundles[${idx}][notes]"
-                           class="form-control form-control-sm">
-                </td>
-                <td class="text-end">
-                    <button type="button" class="btn btn-sm btn-outline-danger btn-remove-row">
-                        <i class="bi bi-x"></i>
-                    </button>
-                </td>
-            `;
+                        <td>
+                            <div class="d-md-none field-label">LOT Sumber</div>
+                            <select name="bundles[${idx}][lot_id]" class="form-select form-select-sm" required>
+                                <option value="">- pilih LOT -</option>
+                                ${lotsOptions}
+                            </select>
+                        </td>
+                        <td>
+                            <div class="d-md-none field-label">Item Hasil</div>
+                            <select name="bundles[${idx}][item_id]" class="form-select form-select-sm" required>
+                                <option value="">- pilih item -</option>
+                                ${itemsOptions}
+                            </select>
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            <input type="text" name="bundles[${idx}][bundle_code]"
+                                   class="form-control form-control-sm mono"
+                                   placeholder="Auto jika dikosongkan">
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            <input type="number" name="bundles[${idx}][bundle_no]"
+                                   class="form-control form-control-sm" value="${idx + 1}">
+                        </td>
+                        <td class="text-end">
+                            <div class="d-md-none field-label">Qty Potong</div>
+                            <input type="number" step="1" min="1"
+                                   name="bundles[${idx}][qty_cut]"
+                                   class="form-control form-control-sm text-end mono"
+                                   placeholder="Qty potong"
+                                   required>
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            <input type="text" name="bundles[${idx}][unit]"
+                                   class="form-control form-control-sm" value="pcs">
+                        </td>
+                        <td class="d-none d-md-table-cell">
+                            <input type="text" name="bundles[${idx}][notes]"
+                                   class="form-control form-control-sm">
+                        </td>
+                        <td class="text-end d-none d-md-table-cell">
+                            <button type="button" class="btn btn-sm btn-outline-danger btn-remove-row">
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </td>
+                    `;
                     tableBody.appendChild(tr);
                     bindRemoveButtons();
                 });

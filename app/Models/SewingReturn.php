@@ -6,8 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class SewingReturn extends Model
 {
-    protected $table = 'sewing_returns';
-
     protected $fillable = [
         'code',
         'date',
@@ -15,23 +13,19 @@ class SewingReturn extends Model
         'from_warehouse_id',
         'to_warehouse_id',
         'status',
+        'total_ok_qty',
+        'total_reject_qty',
         'notes',
         'created_by',
         'posted_at',
-
     ];
 
-    // Jika kamu pakai timestamps, biarkan true
-    public $timestamps = true;
     protected $casts = [
         'date' => 'date',
         'posted_at' => 'datetime',
     ];
-    /*
-    |--------------------------------------------------------------------------
-    | RELATIONSHIPS
-    |--------------------------------------------------------------------------
-     */
+
+    // 🔹 Relasi
 
     public function operator()
     {
@@ -48,13 +42,29 @@ class SewingReturn extends Model
         return $this->belongsTo(Warehouse::class, 'to_warehouse_id');
     }
 
+    public function lines()
+    {
+        return $this->hasMany(SewingReturnLine::class);
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function lines()
+    // 🔹 Helper: total qty by accessor (kalau mau pakai hitungan on-the-fly)
+    public function getTotalOkAttribute(): float
     {
-        return $this->hasMany(SewingReturnLine::class, 'sewing_return_id');
+        return (float) $this->lines->sum('qty_ok');
+    }
+
+    public function getTotalRejectAttribute(): float
+    {
+        return (float) $this->lines->sum('qty_reject');
+    }
+
+    public function getTotalAllAttribute(): float
+    {
+        return $this->total_ok + $this->total_reject;
     }
 }

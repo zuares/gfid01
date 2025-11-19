@@ -41,4 +41,8 @@ class InventoryStock extends Model
     {
         return $this->belongsTo(Warehouse::class, 'warehouse_id');
     }
+    public function stock()
+    {
+        return $this->belongsTo(InventoryStock::class, 'stock_id');
+    }
 }

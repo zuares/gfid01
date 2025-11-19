@@ -1,4 +1,5 @@
 @extends('layouts.app')
+@section('title', 'Produksi • Ambil Jahit • ' . $sewingPick->code)
 
 @section('content')
     <div class="container-fluid">
@@ -41,7 +42,7 @@
 
                     <div class="col-md-3">
                         <div class="text-muted small mb-1">Tanggal</div>
-                        <div>{{ $sewingPick->date }}</div>
+                        <div>{{ \Illuminate\Support\Carbon::parse($sewingPick->date)->format('d M Y') }}</div>
                     </div>
 
                     <div class="col-md-3">
@@ -95,6 +96,7 @@
                             <div class="text-muted">-</div>
                         @endif
                     </div>
+
                     <div class="col-12">
                         <div class="text-muted small mb-1">Catatan</div>
                         <div>{{ $sewingPick->notes ?: '-' }}</div>
@@ -122,6 +124,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th style="width: 40px;">#</th>
+                                <th>Bundle</th>
                                 <th>Item</th>
                                 <th>LOT</th>
                                 <th class="text-end">Qty</th>
@@ -131,30 +134,66 @@
                         </thead>
                         <tbody>
                             @forelse ($sewingPick->lines as $i => $line)
+                                @php
+                                    $bundle = $line->bundle;
+                                    $lotCode = optional(optional($bundle)->lot)->code ?? '—';
+                                    $itemName = optional($line->item)->name ?? 'ID: ' . $line->item_id;
+                                @endphp
                                 <tr>
                                     <td>{{ $i + 1 }}</td>
+
+                                    {{-- BUNDLE --}}
+                                    <td>
+                                        @if ($bundle)
+                                            <div class="fw-semibold">
+                                                {{ $bundle->bundle_code ?? 'BND-' . $bundle->id }}
+                                            </div>
+                                            <div class="small text-muted">
+                                                Bundle ID: {{ $bundle->id }}
+                                            </div>
+                                        @else
+                                            <span class="text-muted">-</span>
+                                        @endif
+                                    </td>
+
+                                    {{-- ITEM --}}
                                     <td>
                                         <div class="fw-semibold">{{ $line->item_code }}</div>
-                                        <div class="small text-muted">ID: {{ $line->item_id }}</div>
+                                        <div class="small text-muted">
+                                            {{ $itemName }}
+                                        </div>
                                     </td>
-                                    <td>#{{ $line->lot_id }}</td>
-                                    <td class="text-end">{{ number_format($line->qty, 2) }}</td>
+
+                                    {{-- LOT (dari bundle.lot) --}}
+                                    <td>
+                                        {{ $lotCode }}
+                                    </td>
+
+                                    {{-- QTY --}}
+                                    <td class="text-end">
+                                        {{ number_format($line->qty, 2, ',', '.') }}
+                                    </td>
+
+                                    {{-- UNIT --}}
                                     <td>{{ $line->unit }}</td>
+
+                                    {{-- CATATAN --}}
                                     <td>{{ $line->notes ?: '-' }}</td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">
+                                    <td colspan="7" class="text-center text-muted py-4">
                                         Tidak ada detail baris.
                                     </td>
                                 </tr>
                             @endforelse
                         </tbody>
+
                         @if ($sewingPick->lines->isNotEmpty())
                             <tfoot>
                                 <tr>
-                                    <th colspan="3" class="text-end">TOTAL</th>
-                                    <th class="text-end">{{ number_format($totalQty, 2) }}</th>
+                                    <th colspan="4" class="text-end">TOTAL</th>
+                                    <th class="text-end">{{ number_format($totalQty, 2, ',', '.') }}</th>
                                     <th colspan="2"></th>
                                 </tr>
                             </tfoot>

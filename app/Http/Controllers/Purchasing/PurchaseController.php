@@ -17,35 +17,18 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseController extends Controller
 {
-
     public function __construct(
         protected InventoryService $inv,
         protected JournalService $journal,
         protected PurchasePaymentService $pps,
     ) {}
-    /** List + search + filter tipe item (opsional) + filter payment status */
+
+    /**
+     * List invoice + search + filter status + filter supplier + filter payment status.
+     */
     public function index(Request $r)
     {
-        $q = trim((string) $r->get('q', ''));
-        $status = $r->get('status'); // draft|posted
-        $supp = $r->get('supplier'); // supplier_id
-        $range = $r->get('range'); // "YYYY-MM-DD s/d YYYY-MM-DD"
-        $pay = $r->get('payment'); // unpaid|partial|paid   <-- kamu pakai 'payment'
-
-        $base = PurchaseInvoice::query()->with('supplier')
-            ->when($q, fn($qq) => $qq->where(function ($w) use ($q) {
-                $w->where('code', 'like', "%{$q}%")
-                    ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$q}%"));
-            }))
-            ->when($status, fn($qq) => $qq->where('status', $status))
-            ->when($supp, fn($qq) => $qq->where('supplier_id', $supp))
-            ->when($pay, fn($qq) => $qq->where('payment_status', $pay))
-            ->when($range, function ($qq) use ($range) {
-                $range = trim($range ?? '');
-                if (preg_match('~^(\d{4}-\d{2}-\d{2})\s*s/d\s*(\d{4}-\d{2}-\d{2})$~', $range, $m)) {
-                    $qq->whereBetween('date', [$m[1], $m[2]]);
-                }
-            });
+        $base = $this->buildIndexQuery($r);
 
         // === KPI stats (pakai clone supaya filter-nya sama persis) ===
         $stats = [
@@ -58,14 +41,33 @@ class PurchaseController extends Controller
         // Data tabel (pagination)
         $rows = (clone $base)
             ->orderByDesc('date')->orderByDesc('id')
-            ->paginate(20)->appends($r->query());
+            ->paginate(20)
+            ->appends($r->query());
 
         $suppliers = Supplier::orderBy('name')->get(['id', 'name']);
 
-        return view('purchasing.invoices.index', compact('q', 'status', 'supp', 'range', 'suppliers', 'rows', 'pay', 'stats'));
+        // variabel filter untuk view
+        $q = trim((string) $r->get('q', ''));
+        $status = $r->get('status');
+        $supp = $r->get('supplier');
+        $range = $r->get('range');
+        $pay = $r->get('payment');
+
+        return view('purchasing.invoices.index', compact(
+            'q',
+            'status',
+            'supp',
+            'range',
+            'suppliers',
+            'rows',
+            'pay',
+            'stats'
+        ));
     }
 
-    /** Tampilkan detail 1 invoice pembelian (lengkap dengan payment ringkas) */
+    /**
+     * Detail 1 invoice pembelian (lengkap dengan ringkasan pembayaran).
+     */
     public function show(PurchaseInvoice $invoice)
     {
         // eager load relasi supaya hemat query
@@ -74,15 +76,16 @@ class PurchaseController extends Controller
             'warehouse:id,code,name',
             'lines' => function ($q) {
                 $q->select('id', 'purchase_invoice_id', 'item_id', 'item_code', 'qty', 'unit', 'unit_cost')
-                    ->with(['item:id,code,name,uom,type'])
+                    ->with(['item:id,code,name,unit,type'])
                     ->orderBy('id');
             },
             'payments:id,purchase_invoice_id,date,amount,method,ref_no,note',
         ]);
 
-        // hitung subtotal per baris & total (grandTotal view-side, sedangkan kolom grand_total diset saat store)
+        // hitung subtotal per baris & total
         $lines = $invoice->lines->map(function ($l) {
             $subtotal = (float) $l->qty * (float) $l->unit_cost;
+
             return [
                 'id' => $l->id,
                 'item_code' => $l->item_code,
@@ -112,9 +115,12 @@ class PurchaseController extends Controller
         ]);
     }
 
+    /**
+     * Form edit lines (qty & harga) hanya untuk DRAFT.
+     */
     public function editLines(PurchaseInvoice $invoice)
     {
-        if ($invoice->status !== 'draft') {
+        if (!$this->isDraft($invoice)) {
             return redirect()
                 ->route('purchasing.invoices.show', $invoice)
                 ->with('error', 'Hanya invoice dengan status DRAFT yang bisa diedit.');
@@ -132,7 +138,7 @@ class PurchaseController extends Controller
      */
     public function updateLines(Request $request, PurchaseInvoice $invoice)
     {
-        if ($invoice->status !== 'draft') {
+        if (!$this->isDraft($invoice)) {
             return redirect()
                 ->route('purchasing.invoices.show', $invoice)
                 ->with('error', 'Invoice yang sudah diposting tidak bisa diubah.');
@@ -149,8 +155,6 @@ class PurchaseController extends Controller
         $nextAction = $validated['next_action'] ?? 'preview';
 
         DB::transaction(function () use ($invoice, $linesData) {
-            $subtotal = 0;
-
             foreach ($linesData as $lineId => $lineInput) {
                 $qty = isset($lineInput['qty']) ? (float) $lineInput['qty'] : 0;
                 $price = isset($lineInput['unit_cost']) ? (float) $lineInput['unit_cost'] : 0;
@@ -163,11 +167,11 @@ class PurchaseController extends Controller
                 $line->qty = $qty;
                 $line->unit_cost = $price;
                 $line->save();
-
-                $subtotal += $qty * $price;
             }
 
-            $invoice->grand_total = $subtotal + (float) ($invoice->other_costs ?? 0);
+            // hitung ulang grand_total header (lines + other_costs)
+            $invoice->refresh(); // pastikan lines terbaru
+            $invoice->grand_total = $this->calculateGrandTotal($invoice);
             $invoice->save();
         });
 
@@ -179,25 +183,28 @@ class PurchaseController extends Controller
         }
 
         // Kalau tombol "Simpan & Post" ditekan:
-        // Panggil logic post yang sudah ada
-        // Sesuaikan pemanggilan ini dengan method post() kamu
         return $this->post($request, $invoice);
     }
 
-    /** Form create */
-    public function create(Request $r)
+    /**
+     * Form create invoice pembelian.
+     */
+    public function create(Request $request)
     {
         // === Supplier dropdown ===
         $suppliers = Supplier::orderBy('name')->get(['id', 'name', 'code']);
 
         // === Default filter tipe item (material|pendukung|finished) ===
-        $filterType = $r->get('type', 'material');
+        $filterType = $request->get('type', 'material');
 
         // === Kirim SEMUA item ke FE (biar bisa gonta-ganti filter tanpa reload) ===
-        $itemsAll = Item::orderBy('name')->get(['id', 'code', 'name', 'uom', 'type']);
+        // gunakan kolom 'unit' (bukan uom)
+        $itemsAll = Item::orderBy('name')->get(['id', 'code', 'name', 'unit', 'type']);
 
         // === Default gudang tujuan = KONTRAKAN (fallback: gudang pertama) ===
-        $kontrakanId = DB::table('warehouses')->where('code', 'KONTRAKAN')->value('id') ?? \DB::table('warehouses')->orderBy('id')->value('id');
+        $kontrakanId = DB::table('warehouses')
+            ->where('code', 'KONTRAKAN')
+            ->value('id') ?? DB::table('warehouses')->orderBy('id')->value('id');
 
         // === (Opsional) nilai awal untuk DP & idempotency di FE ===
         $defaults = [
@@ -208,18 +215,19 @@ class PurchaseController extends Controller
         ];
 
         return view('purchasing.invoices.create', compact(
-            'suppliers', 'itemsAll', 'filterType', 'kontrakanId', 'defaults'
+            'suppliers',
+            'itemsAll',
+            'filterType',
+            'kontrakanId',
+            'defaults',
         ));
     }
 
-    /** Simpan pembelian + LOT + mutasi PURCHASE_IN; set grand_total/paid_amount/payment_status */
-    /** Simpan pembelian sebagai DRAFT (tanpa LOT, mutasi, jurnal). */
-    public function store(
-        Request $r,
-        InventoryService $inv,
-        JournalService $journal,
-        PurchasePaymentService $pps
-    ) {
+    /**
+     * Simpan pembelian sebagai DRAFT (tanpa LOT, mutasi, jurnal).
+     */
+    public function store(Request $r)
+    {
         // ===== Validasi =====
         $data = $r->validate([
             'date' => ['required', 'date'],
@@ -229,13 +237,13 @@ class PurchaseController extends Controller
 
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.item_id' => ['required', 'integer', 'exists:items,id'],
-            'lines.*.qty' => ['required', 'string'],
+            'lines.*.qty' => ['required'], // bisa numeric/string (hidden dari JS)
             'lines.*.unit' => ['required', 'string', 'max:16'],
-            'lines.*.unit_cost' => ['required', 'string'],
+            'lines.*.unit_cost' => ['required'], // bisa numeric/string (hidden dari JS)
 
-            'other_costs' => ['nullable', 'string'],
+            'other_costs' => ['nullable'], // bisa numeric/string
 
-            // pembayaran saat create diabaikan untuk draft (boleh kirim tapi tidak dipakai)
+            // pembayaran saat create diabaikan untuk draft
             'pay_amount' => ['nullable', 'numeric', 'min:0'],
             'pay_method' => ['nullable', 'in:cash,bank,transfer,other'],
             'pay_ref_no' => ['nullable', 'string', 'max:64'],
@@ -243,26 +251,11 @@ class PurchaseController extends Controller
             '_idem' => ['nullable', 'string', 'max:64'],
         ]);
 
-        // ===== Normalisasi angka ID → float =====
-        $norm = function ($s): float {
-            $s = trim((string) $s);
-            $s = str_replace("\xc2\xa0", ' ', $s);
-            $s = str_replace('.', '', $s);
-            $s = str_replace(',', '.', $s);
-            if ($s === '') {
-                return 0.0;
-            }
-
-            if (!preg_match('~^-?\d+(\.\d+)?$~', $s)) {
-                abort(422, 'Format angka tidak valid.');
-            }
-
-            return (float) $s;
-        };
-
+        // ===== Normalisasi angka → float (mendukung string / numeric) =====
         foreach ($data['lines'] as &$line) {
-            $line['qty'] = max(0.0, $norm($line['qty']));
-            $line['unit_cost'] = max(0.0, $norm($line['unit_cost']));
+            $line['qty'] = round(max(0.0, $this->normalizeNumber($line['qty'])), 2);
+            $line['unit_cost'] = round(max(0.0, $this->normalizeNumber($line['unit_cost'])), 2);
+
             if ($line['qty'] <= 0) {
                 abort(422, 'Qty tidak boleh <= 0');
             }
@@ -270,27 +263,31 @@ class PurchaseController extends Controller
             if ($line['unit_cost'] < 0) {
                 abort(422, 'Harga tidak boleh < 0');
             }
-
         }
         unset($line);
 
         $otherCosts = 0.0;
         if (array_key_exists('other_costs', $data) && $data['other_costs'] !== null && $data['other_costs'] !== '') {
-            $otherCosts = max(0.0, $norm($data['other_costs']));
+            $otherCosts = round(max(0.0, $this->normalizeNumber($data['other_costs'])), 2);
         }
 
         $trxDate = \Carbon\Carbon::parse($data['date'])->toDateString();
 
-        // ===== Generate code INV-BKU-YYMMDD-### =====
+        // ===== Generate code FPB-YYMMDD-### =====
         $datePart = date('ymd', strtotime($trxDate));
         $prefix = "FPB-{$datePart}-";
-        $invCode = $prefix . str_pad((string) ($this->nextSeq($prefix)), 3, '0', STR_PAD_LEFT);
+        $invCode = $prefix . str_pad((string) $this->nextSeq($prefix), 3, '0', STR_PAD_LEFT);
 
         // (Opsional) Idempotensi jika kamu sudah menambah kolom idempotency_key
         if (!empty($data['_idem'])) {
-            $exists = DB::table('purchase_invoices')->where('idempotency_key', $data['_idem'])->exists();
+            $exists = DB::table('purchase_invoices')
+                ->where('idempotency_key', $data['_idem'])
+                ->exists();
+
             if ($exists) {
-                return redirect()->route('purchasing.invoices.index')->with('succes', "Pembelian {$invCode} sudah tercatat.");
+                return redirect()
+                    ->route('purchasing.invoices.index')
+                    ->with('success', "Pembelian {$invCode} sudah tercatat.");
             }
         }
 
@@ -298,25 +295,27 @@ class PurchaseController extends Controller
             /** @var \App\Models\PurchaseInvoice $invoice */
             $invoice = PurchaseInvoice::create([
                 'code' => $invCode,
-                'date' => now(),
+                'date' => $trxDate, // simpan sesuai tanggal transaksi
                 'supplier_id' => $data['supplier_id'],
                 'warehouse_id' => $data['warehouse_id'],
                 'note' => $data['note'] ?? null,
-                'status' => 'draft', // <— SIMPAN DRAFT
+                'status' => 'draft',
                 'grand_total' => 0,
                 'paid_amount' => 0,
                 'payment_status' => 'unpaid',
-                'other_costs' => $otherCosts, // jika kolom ada
-                'idempotency_key' => $data['_idem'] ?? null, // jika kolom ada
+                'other_costs' => $otherCosts,
+                'idempotency_key' => $data['_idem'] ?? null,
             ]);
 
             // Simpan detail TANPA LOT/MUTASI
             $grand = 0.0;
+
             foreach ($data['lines'] as $line) {
-                $item = \App\Models\Item::findOrFail($line['item_id']);
-                $qty = (float) $line['qty'];
+                $item = Item::findOrFail($line['item_id']);
+
+                $qty = (float) $line['qty']; // sudah dinormalisasi
                 $unit = (string) $line['unit'];
-                $cost = (float) $line['unit_cost'];
+                $cost = (float) $line['unit_cost']; // sudah dinormalisasi
 
                 PurchaseInvoiceLine::create([
                     'purchase_invoice_id' => $invoice->id,
@@ -327,13 +326,13 @@ class PurchaseController extends Controller
                     'unit_cost' => $cost,
                 ]);
 
-                $grand += $qty * $cost;
+                $grand += round($qty * $cost, 2);
             }
 
             // Hitung grand total (ikut other_costs)
             $grand = round($grand + (float) $otherCosts, 2);
 
-            // Draft: paid_amount tetap 0 & payment_status 'unpaid' (abaikan input pay_amount)
+            // Draft: paid_amount tetap 0 & payment_status 'unpaid'
             $invoice->forceFill([
                 'grand_total' => $grand,
                 'paid_amount' => 0.0,
@@ -346,14 +345,19 @@ class PurchaseController extends Controller
             ->with('success', "Draft pembelian {$invCode} tersimpan.");
     }
 
-    /** AJAX: harga terakhir per supplier+item */
+    /**
+     * AJAX: harga terakhir per supplier+item.
+     */
     public function lastPrice(Request $r)
     {
         $supplierId = (int) $r->get('supplier_id');
         $itemId = (int) $r->get('item_id');
 
         if (!$supplierId || !$itemId) {
-            return response()->json(['success' => false, 'msg' => 'supplier_id dan item_id wajib diisi'], 422);
+            return response()->json([
+                'success' => false,
+                'msg' => 'supplier_id dan item_id wajib diisi',
+            ], 422);
         }
 
         $last = PurchaseInvoiceLine::with(['invoice:id,date,supplier_id,code'])
@@ -375,7 +379,9 @@ class PurchaseController extends Controller
         ]);
     }
 
-    /** AJAX: riwayat pembelian ringkas per supplier+item (n terakhir) */
+    /**
+     * AJAX: riwayat pembelian ringkas per supplier+item (n terakhir).
+     */
     public function history(Request $r)
     {
         $supplierId = (int) $r->get('supplier_id');
@@ -407,9 +413,12 @@ class PurchaseController extends Controller
         return response()->json(['success' => true, 'data' => $data]);
     }
 
+    /**
+     * Posting invoice: buat LOT, mutasi stok, dan jurnal.
+     */
     public function post(Request $r, PurchaseInvoice $invoice)
     {
-        if ($invoice->status !== 'draft') {
+        if (!$this->isDraft($invoice)) {
             return back()->with('error', "Invoice {$invoice->code} sudah diposting atau dibatalkan.");
         }
 
@@ -420,10 +429,11 @@ class PurchaseController extends Controller
             ->with('success', "Invoice {$invoice->code} berhasil diposting.");
     }
 
-    /** Hitung next sequence untuk INV-BKU-YYMMDD-### */
+    /**
+     * Hitung next sequence untuk FPB-YYMMDD-###.
+     */
     protected function nextSeq(string $prefix): int
     {
-        // Ambil suffix numeric paling besar dari kode yang match prefix
         $last = DB::table('purchase_invoices')
             ->where('code', 'like', $prefix . '%')
             ->orderByDesc('code') // karena zero-pad, sorting string aman
@@ -433,13 +443,13 @@ class PurchaseController extends Controller
             return 1;
         }
 
-        // Format: INV-BKU-YYMMDD-###
         $suffix = (int) preg_replace('~^' . preg_quote($prefix, '~') . '~', '', $last);
+
         return $suffix + 1;
     }
 
     /**
-     * Logic utama posting invoice (diambil dari method post() lama)
+     * Logic utama posting invoice (create LOT, mutasi, jurnal).
      */
     protected function performPosting(PurchaseInvoice $invoice): void
     {
@@ -447,7 +457,7 @@ class PurchaseController extends Controller
         $invoice->load(['lines.item:id,code', 'payments', 'supplier:id,name', 'warehouse:id,code']);
 
         // Kalau bukan draft, skip saja
-        if ($invoice->status !== 'draft') {
+        if (!$this->isDraft($invoice)) {
             return;
         }
 
@@ -455,15 +465,11 @@ class PurchaseController extends Controller
             $trxDate = Carbon::parse($invoice->date)->toDateString();
 
             // === 1) Hitung ulang GRAND TOTAL (lines + other_costs)
-            $grand = 0.0;
-            foreach ($invoice->lines as $ln) {
-                $grand += (float) $ln->qty * (float) $ln->unit_cost;
-            }
-            $grand = round($grand + (float) ($invoice->other_costs ?? 0), 2);
+            $grand = $this->calculateGrandTotal($invoice);
 
             // === 2) Generate LOT per line + Mutasi PURCHASE_IN
             foreach ($invoice->lines as $ln) {
-                $itemCode = $ln->item_code ?? $ln->item?->code; // fallback
+                $itemCode = $ln->item_code ?? $ln->item?->code;
                 $lotCode = \App\Support\LotCode::nextMaterial((string) $itemCode, new DateTime($trxDate));
 
                 $lotId = DB::table('lots')->insertGetId([
@@ -490,33 +496,33 @@ class PurchaseController extends Controller
                 );
             }
 
-            // === 3) Voucher 1: JURNAL INVOICE (Dr Persediaan, Cr Hutang) FULL GRAND
-            $this->journal->postPurchaseSplit(
-                refCode: $invoice->code,
-                date: $trxDate,
-                inventoryAmount: $grand,
-                cashPaid: 0.0, // tidak kredit kas di voucher invoice
-                payableRemain: $grand, // seluruh nilai ke Hutang
-                cashAccountNote: null,
-                memo: $invoice->note
-            );
+            // // === 3) Voucher 1: JURNAL INVOICE (Dr Persediaan, Cr Hutang) FULL GRAND
+            // $this->journal->postPurchaseSplit(
+            //     refCode: $invoice->code,
+            //     date: $trxDate,
+            //     inventoryAmount: $grand,
+            //     cashPaid: 0.0, // tidak kredit kas di voucher invoice
+            //     payableRemain: $grand, // seluruh nilai ke Hutang
+            //     cashAccountNote: null,
+            //     memo: $invoice->note
+            // );
 
-            // === 4) Voucher 2: JURNAL PEMBAYARAN (jika SUDAH ada payments)
-            if ($invoice->payments && $invoice->payments->count() > 0) {
-                foreach ($invoice->payments as $p) {
-                    if ((float) $p->amount <= 0) {
-                        continue;
-                    }
+            // // === 4) Voucher 2: JURNAL PEMBAYARAN (jika sudah ada payments)
+            // if ($invoice->payments && $invoice->payments->count() > 0) {
+            //     foreach ($invoice->payments as $p) {
+            //         if ((float) $p->amount <= 0) {
+            //             continue;
+            //         }
 
-                    $this->journal->postPaymentPurchase(
-                        refCode: $invoice->code . '/PAY-' . $p->id,
-                        date: Carbon::parse($p->date)->toDateString(),
-                        amount: (float) $p->amount,
-                        method: (string) $p->method,
-                        memo: $p->note
-                    );
-                }
-            }
+            //         $this->journal->postPaymentPurchase(
+            //             refCode: $invoice->code . '/PAY-' . $p->id,
+            //             date: Carbon::parse($p->date)->toDateString(),
+            //             amount: (float) $p->amount,
+            //             method: (string) $p->method,
+            //             memo: $p->note
+            //         );
+            //     }
+            // }
 
             // === 5) Update header: status, paid_amount, payment_status
             $invoice->forceFill([
@@ -529,12 +535,103 @@ class PurchaseController extends Controller
         });
     }
 
-}
+    // ======================
+    // Helper private methods
+    // ======================
 
-/** Helper kecil untuk cek schema tanpa import facade */
-if (!function_exists('Schema')) {
-    function Schema()
+    /**
+     * Query dasar untuk index() dengan semua filter.
+     */
+    protected function buildIndexQuery(Request $r)
     {
-        return app('db.schema');
+        $q = trim((string) $r->get('q', ''));
+        $status = $r->get('status'); // draft|posted
+        $supp = $r->get('supplier'); // supplier_id
+        $range = $r->get('range'); // "YYYY-MM-DD s/d YYYY-MM-DD"
+        $pay = $r->get('payment'); // unpaid|partial|paid
+
+        $base = PurchaseInvoice::query()->with('supplier')
+            ->when($q, function ($qq) use ($q) {
+                $qq->where(function ($w) use ($q) {
+                    $w->where('code', 'like', "%{$q}%")
+                        ->orWhereHas('supplier', fn($s) => $s->where('name', 'like', "%{$q}%"));
+                });
+            })
+            ->when($status, fn($qq) => $qq->where('status', $status))
+            ->when($supp, fn($qq) => $qq->where('supplier_id', $supp))
+            ->when($pay, fn($qq) => $qq->where('payment_status', $pay));
+
+        if ($parsed = $this->parseDateRange($range)) {
+            [$from, $to] = $parsed;
+            $base->whereBetween('date', [$from, $to]);
+        }
+
+        return $base;
+    }
+
+    /**
+     * Parse string "YYYY-MM-DD s/d YYYY-MM-DD" → [from, to] atau null.
+     */
+    protected function parseDateRange(?string $range): ?array
+    {
+        $range = trim((string) $range);
+        if ($range === '') {
+            return null;
+        }
+
+        if (!preg_match('~^(\d{4}-\d{2}-\d{2})\s*s/d\s*(\d{4}-\d{2}-\d{2})$~', $range, $m)) {
+            return null;
+        }
+
+        return [$m[1], $m[2]];
+    }
+
+    /**
+     * Normalisasi angka format Indonesia ke float.
+     */
+    protected function normalizeNumber($value): float
+    {
+        // Kalau sudah numeric (hasil hidden dari JS), langsung pakai
+        if (is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))) {
+            return (float) $value;
+        }
+
+        // Kalau masih format Indonesia (1.234,56)
+        $s = trim((string) $value);
+        $s = str_replace("\xc2\xa0", ' ', $s); // non-breaking space
+        $s = str_replace('.', '', $s); // hapus pemisah ribuan
+        $s = str_replace(',', '.', $s); // ubah koma desimal ke titik
+
+        if ($s === '') {
+            return 0.0;
+        }
+
+        if (!preg_match('~^-?\d+(\.\d+)?$~', $s)) {
+            abort(422, 'Format angka tidak valid.');
+        }
+
+        return (float) $s;
+    }
+
+    /**
+     * Hitung grand total dari lines + other_costs.
+     */
+    protected function calculateGrandTotal(PurchaseInvoice $invoice): float
+    {
+        $totalLines = 0.0;
+
+        foreach ($invoice->lines as $ln) {
+            $totalLines += (float) $ln->qty * (float) $ln->unit_cost;
+        }
+
+        return round($totalLines + (float) ($invoice->other_costs ?? 0), 2);
+    }
+
+    /**
+     * Cek apakah invoice masih DRAFT.
+     */
+    protected function isDraft(PurchaseInvoice $invoice): bool
+    {
+        return $invoice->status === 'draft';
     }
 }

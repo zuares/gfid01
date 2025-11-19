@@ -3,17 +3,19 @@
 namespace App\Http\Controllers\Production;
 
 use App\Http\Controllers\Controller;
-use App\Models\CuttingBundle;
 use App\Models\Employee;
+use App\Models\InventoryStock; // sesuaikan nama model WIP-mu
 use App\Models\SewingPick;
 use App\Models\SewingPickLine;
 use App\Models\Warehouse;
+use App\Models\WipItem;
 use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class SewingPickController extends Controller
 {
+
     public function index(Request $request)
     {
         $operatorId = $request->input('operator_id');
@@ -39,8 +41,8 @@ class SewingPickController extends Controller
 
         $picks = $query->paginate(20);
 
-        // hanya operator sewing (role = sewing)
-        $operators = Employee::where('role', 'sewing')
+        // hanya operator jahit
+        $operators = Employee::where('role', 'jahit')
             ->orderBy('name')
             ->get();
 
@@ -58,9 +60,7 @@ class SewingPickController extends Controller
         $sewingPick->load([
             'fromWarehouse',
             'toWarehouse',
-            'operator',
-            'lines.item',
-            'lines.bundle',
+            'lines',
         ]);
 
         return view('production.sewing_picks.show', compact('sewingPick'));
@@ -68,28 +68,27 @@ class SewingPickController extends Controller
 
     public function create(Request $request)
     {
-        // Gudang sumber: WIP-SEW
+
         $wipWarehouse = Warehouse::firstOrCreate(
             ['code' => 'WIP-SEW'],
             ['name' => 'WIP Siap Jahit', 'type' => 'wip']
         );
 
-        // Bundle hasil cutting yang sudah OK (qty_ok > 0)
-        $bundles = CuttingBundle::query()
-            ->where('status', 'qc_done')
-            ->where('qty_ok', '>', 0)
-            ->with(['item', 'lot', 'batch'])
+        $wipItems = InventoryStock::query()
+            ->where('warehouse_id', $wipWarehouse->id)
+            ->whereNull('lot_id') // penting: ini stok hasil QC cutting (K7BLK, dst)
+            ->where('qty', '>', 0)
+            ->with('item') // kalau mau tampilkan nama item
             ->orderBy('item_code')
-            ->orderBy('bundle_code')
             ->get();
 
-        // Hanya operator dengan role 'sewing'
+        // HANYA operator dengan role 'sewing'
         $operators = Employee::where('role', 'sewing')
             ->orderBy('name')
             ->get();
 
         return view('production.sewing_picks.create', [
-            'bundles' => $bundles,
+            'wipItems' => $wipItems, // sekarang isinya dari inventory_stocks
             'operators' => $operators,
             'wipWarehouse' => $wipWarehouse,
         ]);
@@ -97,7 +96,7 @@ class SewingPickController extends Controller
 
     public function store(Request $request)
     {
-        // Gudang sumber WIP-SEW
+        // Pastikan gudang WIP-SEW ada (stok siap dijahit)
         $wipWarehouse = Warehouse::firstOrCreate(
             ['code' => 'WIP-SEW'],
             ['name' => 'WIP Siap Jahit', 'type' => 'wip']
@@ -110,12 +109,13 @@ class SewingPickController extends Controller
 
             'lines' => ['required', 'array'],
             'lines.*.selected' => ['nullable'], // checkbox
-            'lines.*.bundle_id' => ['required', 'integer', 'exists:cutting_bundles,id'],
+            'lines.*.wip_item_id' => ['nullable', 'integer'],
+            'lines.*.lot_id' => ['required', 'integer'],
             'lines.*.item_id' => ['required', 'integer'],
-            'lines.*.item_code' => ['required', 'string', 'max:64'],
+            'lines.*.item_code' => ['required', 'string', 'max:100'],
             'lines.*.qty' => ['nullable', 'numeric', 'min:0'],
             'lines.*.unit' => ['required', 'string', 'max:16'],
-            'lines.*.notes' => ['nullable', 'string', 'max:255'],
+            'lines.*.notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $date = $data['date'];
@@ -123,12 +123,12 @@ class SewingPickController extends Controller
         $operator = Employee::findOrFail($data['operator_id']);
         $opCode = $operator->code ?? ('OP-' . $operator->id);
 
-        // Tujuan gudang otomatis: SEW-EXT-[OPCODE]
+        // Tujuan gudang otomatis: SEW-EXT-EMPCODE (stok jahit yang sedang dipegang operator)
         $toWarehouse = Warehouse::firstOrCreate(
             ['code' => 'SEW-EXT-' . $opCode],
             [
                 'name' => 'Gudang Jahit ' . $opCode,
-                'type' => 'external_sew',
+                'type' => 'external_sew', // bebas, sesuaikan skema kamu
             ]
         );
 
@@ -153,12 +153,12 @@ class SewingPickController extends Controller
                 'created_by' => auth()->id(),
             ]);
 
-            $fromWh = $wipWarehouse->id; // WIP-SEW
-            $toWh = $toWarehouse->id; // SEW-EXT-OP
+            $fromWh = $wipWarehouse->id; // stok siap dijahit (WIP-SEW)
+            $toWh = $toWarehouse->id; // stok jahit di operator (SEW-EXT-OP)
 
             foreach ($data['lines'] as $row) {
 
-                // Hanya yang dicentang
+                // Hanya proses yang di-checklist
                 $selected = !empty($row['selected']);
                 if (!$selected) {
                     continue;
@@ -169,79 +169,68 @@ class SewingPickController extends Controller
                     continue;
                 }
 
-                /** @var \App\Models\CuttingBundle|null $bundle */
-                $bundle = CuttingBundle::find($row['bundle_id']);
-                if (!$bundle) {
-                    continue;
-                }
+                $lotId = (int) $row['lot_id'];
+                $unit = $row['unit'];
 
-                // Maksimal qty ambil = qty_ok bundle
-                $maxQty = (float) ($bundle->qty_ok ?? 0);
-                if ($maxQty <= 0) {
-                    continue;
-                }
-
-                if ($qty > $maxQty) {
-                    $qty = $maxQty;
-                }
-
-                if ($qty <= 0) {
-                    continue;
-                }
-
-                // Simpan detail dokumen ambil jahit
+                // 🔹 Simpan detail dokumen ambil jahit
                 $line = SewingPickLine::create([
                     'sewing_pick_id' => $header->id,
-                    'bundle_id' => $bundle->id,
+                    'wip_item_id' => $row['wip_item_id'] ?? null,
+                    'lot_id' => $lotId,
                     'item_id' => $row['item_id'],
                     'item_code' => $row['item_code'],
                     'qty' => $qty,
-                    'unit' => $row['unit'],
+                    'unit' => $unit,
                     'notes' => $row['notes'] ?? null,
                 ]);
 
-                // ✅ Kurangi qty_ok di bundle (supaya sisa bundle kelihatan)
-                $beforeOk = (float) ($bundle->qty_ok ?? 0);
-                $afterOk = max(0, $beforeOk - $qty);
-                $bundle->qty_ok = $afterOk;
-                $bundle->save();
-
-                // Mutasi stok item-based via InventoryService:
-                // OUT dari WIP-SEW
-                $inventory->mutateItem(
-                    warehouseId: $fromWh,
-                    itemId: $bundle->item_id,
-                    itemCode: $bundle->item_code,
-                    type: 'WIP_SEW_OUT',
-                    qtyIn: 0,
-                    qtyOut: $qty,
-                    unit: $bundle->unit ?? $row['unit'],
+                // 🔹 Mutasi stok "fisik" via InventoryService:
+                //    dari WIP-SEW (siap dijahit) → SEW-EXT-OP (sedang dipegang operator)
+                $inventory->transfer(
+                    fromWarehouseId: $fromWh,
+                    toWarehouseId: $toWh,
+                    lotId: $lotId,
+                    qty: $qty,
+                    unit: $unit,
                     refCode: $header->code,
-                    note: 'Ambil jahit (bundle ' . ($bundle->bundle_code ?? $bundle->id) . ', line #' . $line->id . ')',
+                    note: 'Ambil jahit (line #' . $line->id . ')',
                     date: $date,
                     category: 'wip_sewing'
                 );
 
-                // IN ke gudang operator jahit
-                $inventory->mutateItem(
-                    warehouseId: $toWh,
-                    itemId: $bundle->item_id,
-                    itemCode: $bundle->item_code,
-                    type: 'WIP_SEW_IN',
-                    qtyIn: $qty,
-                    qtyOut: 0,
-                    unit: $bundle->unit ?? $row['unit'],
-                    refCode: $header->code,
-                    note: 'Ambil jahit ke operator (bundle ' . ($bundle->bundle_code ?? $bundle->id) . ', line #' . $line->id . ')',
-                    date: $date,
-                    category: 'wip_sewing'
-                );
+                // 🔹 Update WIP item (sisa stok siap dijahit)
+                if (!empty($row['wip_item_id'])) {
+                    /** @var WipItem|null $wip */
+                    $wip = WipItem::find($row['wip_item_id']);
+
+                    if ($wip) {
+                        $before = (float) $wip->qty;
+                        $after = max(0, $before - $qty); // JIKA TIDAK DIAMBIL SEMUA → otomatis tersisa
+
+                        $wip->qty = $after;
+
+                        // kalau masih ada sisa → tetap available
+                        // kalau habis → tandai sudah dipindah semua
+                        if ($after <= 0) {
+                            $wip->status = 'moved'; // atau 'used', bebas naming
+                        } else {
+                            $wip->status = 'available';
+                        }
+
+                        $wip->save();
+
+                        // Catatan:
+                        //  - after = "sisa stok siap diambil" di gudang WIP-SEW (per bundle/lot)
+                        //  - stok jahit yang SDH DIAMBIL per operator bisa dilihat di inventory_stocks
+                        //    untuk warehouse code = SEW-EXT-[KODE OP].
+                    }
+                }
             }
         });
 
         return redirect()
             ->route('production.sewing_picks.index')
-            ->with('success', 'Dokumen ambil jahit berhasil disimpan & stok sudah terupdate.');
+            ->with('success', 'Dokumen ambil jahit berhasil disimpan & stok sudah terupdate (termasuk sisa stok jahit).');
     }
 
 }

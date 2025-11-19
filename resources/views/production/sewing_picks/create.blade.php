@@ -64,7 +64,7 @@
             <div>
                 <h4 class="mb-1">Ambil Jahit</h4>
                 <div class="small text-muted">
-                    Ambil bundle hasil cutting dari WIP-SEW untuk diberikan ke operator jahit.
+                    Ambil bundle hasil cutting (qty OK) dari WIP-SEW untuk diberikan ke operator jahit.
                 </div>
             </div>
             <div>
@@ -112,7 +112,7 @@
                             </select>
                             <div class="help mt-1">
                                 Gudang tujuan akan otomatis dibuat dengan kode:
-                                <span class="mono">EXT-SEW-[KODE OP]</span>.
+                                <span class="mono">SEW-EXT-[KODE OP]</span>.
                             </div>
                         </div>
 
@@ -137,15 +137,15 @@
                 </div>
             </div>
 
-            {{-- DETAIL BUNDLE WIP --}}
+            {{-- DETAIL BUNDLE --}}
             <div class="card mb-4">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <div class="fw-semibold small text-uppercase">
-                            Bundle Siap Jahit (WIP-SEW)
+                            Bundle Cutting Siap Jahit (status QC OK)
                         </div>
                         <div class="help">
-                            Centang bundle yang diambil. Qty ambil otomatis = Qty tersedia (boleh diubah).
+                            Centang bundle yang diambil. Qty ambil otomatis = Qty OK (boleh dikurangi).
                         </div>
                     </div>
 
@@ -153,31 +153,33 @@
                         <table class="table table-sm align-middle mb-0">
                             <thead>
                                 <tr>
-                                    {{-- SELECT ALL CHECKBOX --}}
                                     <th style="width: 40px;" class="text-center">
                                         <input type="checkbox" class="form-check-input" id="check-all-picks">
                                     </th>
                                     <th style="width: 40px;">#</th>
+                                    <th>Bundle</th>
                                     <th>Item</th>
                                     <th>LOT</th>
-                                    <th class="text-end">Qty Tersedia</th>
+                                    <th class="text-end">Qty OK</th>
                                     <th class="text-end">Qty Ambil</th>
                                     <th>Unit</th>
                                     <th>Catatan</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @forelse ($wipItems as $i => $wip)
+                                @forelse ($bundles as $i => $bundle)
                                     @php
                                         $oldLine = old('lines.' . $i, []);
-                                        $lotValue = $wip->lot_id ?? optional($wip->bundle)->lot_id;
+                                        $qtyOk = (float) ($bundle->qty_ok ?? 0);
+                                        $lotCode = optional($bundle->lot)->code ?? '—';
+                                        $batchCode = optional($bundle->batch)->code ?? null;
                                     @endphp
                                     <tr>
                                         {{-- CHECKBOX --}}
                                         <td class="text-center">
                                             <input type="checkbox" class="form-check-input pick-checkbox"
                                                 name="lines[{{ $i }}][selected]" value="1"
-                                                data-index="{{ $i }}" data-qty="{{ $wip->qty }}"
+                                                data-index="{{ $i }}" data-qty="{{ $qtyOk }}"
                                                 @checked(!empty($oldLine['selected']))>
                                         </td>
 
@@ -185,50 +187,59 @@
                                             {{ $i + 1 }}
                                         </td>
 
-                                        {{-- ITEM --}}
+                                        {{-- BUNDLE --}}
                                         <td>
-                                            <div class="mono">{{ $wip->item_code }}</div>
+                                            <div class="mono">
+                                                {{ $bundle->bundle_code ?? 'BND-' . $bundle->id }}
+                                            </div>
                                             <div class="small text-muted">
-                                                ID Item: {{ $wip->item_id }}
+                                                Batch: {{ $batchCode ?? '-' }}
                                             </div>
 
-                                            {{-- Hidden input sesuai validasi store() --}}
+                                            {{-- Hidden bundle_id --}}
+                                            <input type="hidden" name="lines[{{ $i }}][bundle_id]"
+                                                value="{{ $bundle->id }}">
+                                        </td>
+
+                                        {{-- ITEM --}}
+                                        <td>
+                                            <div class="mono">{{ $bundle->item_code }}</div>
+                                            <div class="small text-muted">
+                                                {{ $bundle->item->name ?? '—' }}
+                                            </div>
+
                                             <input type="hidden" name="lines[{{ $i }}][item_id]"
-                                                value="{{ $wip->item_id }}">
+                                                value="{{ $bundle->item_id }}">
                                             <input type="hidden" name="lines[{{ $i }}][item_code]"
-                                                value="{{ $wip->item_code }}">
+                                                value="{{ $bundle->item_code }}">
                                             <input type="hidden" name="lines[{{ $i }}][unit]"
-                                                value="{{ $wip->unit }}">
-                                            <input type="hidden" name="lines[{{ $i }}][wip_item_id]"
-                                                value="{{ $wip->id }}">
+                                                value="{{ $bundle->unit }}">
                                         </td>
 
                                         {{-- LOT --}}
                                         <td>
                                             <span class="badge-lot mono">
-                                                LOT #{{ $lotValue ?? '—' }}
+                                                {{ $lotCode }}
                                             </span>
-                                            <input type="hidden" name="lines[{{ $i }}][lot_id]"
-                                                value="{{ $lotValue }}">
                                         </td>
 
-                                        {{-- QTY TERSEDIA --}}
+                                        {{-- QTY OK (tersedia) --}}
                                         <td class="text-end mono text-muted">
-                                            {{ number_format($wip->qty, 2, ',', '.') }}
+                                            {{ number_format($qtyOk, 2, ',', '.') }}
                                         </td>
 
                                         {{-- QTY AMBIL --}}
                                         <td class="text-end">
                                             <input type="number" name="lines[{{ $i }}][qty]" step="0.01"
-                                                min="0" max="{{ $wip->qty }}"
+                                                min="0" max="{{ $qtyOk }}"
                                                 class="form-control form-control-sm text-end mono qty-input"
-                                                data-index="{{ $i }}" data-available="{{ $wip->qty }}"
+                                                data-index="{{ $i }}" data-available="{{ $qtyOk }}"
                                                 placeholder="0,00" value="{{ $oldLine['qty'] ?? '' }}">
                                         </td>
 
                                         {{-- UNIT --}}
                                         <td class="mono">
-                                            {{ $wip->unit }}
+                                            {{ $bundle->unit }}
                                         </td>
 
                                         {{-- CATATAN LINE --}}
@@ -241,8 +252,8 @@
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="8" class="text-center text-muted py-4">
-                                            Tidak ada WIP Cutting yang siap dijahit di gudang WIP-SEW.
+                                        <td colspan="9" class="text-center text-muted py-4">
+                                            Tidak ada bundle cutting (status QC OK) yang siap dijahit.
                                         </td>
                                     </tr>
                                 @endforelse
@@ -252,15 +263,15 @@
 
                     <div class="help mt-2">
                         Baris yang <strong>tidak dicentang</strong> akan diabaikan & tidak menyebabkan error.
-                        Qty ambil akan otomatis diisi sama dengan Qty tersedia saat dicentang atau saat "Select All".
+                        Qty ambil otomatis = Qty OK saat dicentang / Select All, tapi boleh dikurangi.
                     </div>
                 </div>
             </div>
 
             <div class="d-flex justify-content-between align-items-center mb-5">
                 <div class="small text-muted">
-                    Saat disimpan: stok akan dipindahkan dari <span class="mono">WIP-SEW</span>
-                    ke gudang <span class="mono">EXT-SEW-[KODE OP]</span>, dan WIP akan berkurang.
+                    Saat disimpan: stok item K7BLK / dst akan dipindahkan dari <span class="mono">WIP-SEW</span>
+                    ke gudang <span class="mono">SEW-EXT-[KODE OP]</span> sesuai bundle yang diambil.
                 </div>
                 <div>
                     <button type="submit" class="btn btn-primary">
@@ -279,7 +290,7 @@
             function setQtyForRow(idx, qty) {
                 const input = document.querySelector('input.qty-input[data-index="' + idx + '"]');
                 if (!input) return;
-                input.value = qty > 0 ? qty.toString().replace('.', ',') : '';
+                input.value = qty > 0 ? qty : '';
             }
 
             // Checkbox per baris

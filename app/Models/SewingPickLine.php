@@ -2,11 +2,8 @@
 
 namespace App\Models;
 
-use App\Models\Employee;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
-// pastikan ada
 
 class SewingPickLine extends Model
 {
@@ -16,8 +13,7 @@ class SewingPickLine extends Model
 
     protected $fillable = [
         'sewing_pick_id',
-        'wip_item_id',
-        'lot_id',
+        'bundle_id',
         'item_id',
         'item_code',
         'qty',
@@ -26,45 +22,35 @@ class SewingPickLine extends Model
     ];
 
     protected $casts = [
-        'qty' => 'float',
+        'qty' => 'decimal:2',
     ];
 
-    // Relations
+    /* ==========
+     * RELASI
+     * ========== */
 
     public function sewingPick()
     {
-        return $this->belongsTo(SewingPick::class);
+        return $this->belongsTo(SewingPick::class, 'sewing_pick_id');
     }
 
-    public function wipItem()
+    public function stock()
     {
-        return $this->belongsTo(WipItem::class, 'wip_item_id');
-    }
-
-    // optional: jika ada model Lot atau Item, bisa ditambahkan
-    public function lot()
-    {
-        return $this->belongsTo(Lot::class, 'lot_id');
+        return $this->belongsTo(InventoryStock::class, 'stock_id');
     }
 
     public function item()
     {
         return $this->belongsTo(Item::class, 'item_id');
     }
-
-    public function operator()
-    {
-        return $this->belongsTo(Employee::class, 'operator_id');
-    }
-
-    public function creator()
-    {
-        return $this->belongsTo(User::class, 'created_by');
-    }
-
+    // 🔥 WAJIB ADA! Untuk total OK dan Reject.
     public function sewingReturns()
     {
         return $this->hasMany(SewingReturnLine::class, 'sewing_pick_line_id');
     }
 
+    public function bundle()
+    {
+        return $this->belongsTo(CuttingBundle::class, 'bundle_id');
+    }
 }
