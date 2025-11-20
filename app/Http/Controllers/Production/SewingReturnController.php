@@ -174,6 +174,10 @@ class SewingReturnController extends Controller
             'operator_id' => ['required', 'exists:employees,id'],
             'notes' => ['nullable', 'string', 'max:500'],
 
+            // ⬇️ biaya sewing
+            'sewing_rate' => ['nullable', 'numeric', 'min:0'],
+            'sewing_fee' => ['nullable', 'numeric', 'min:0'],
+
             'lines' => ['required', 'array'],
             'lines.*.sewing_pick_line_id' => ['required', 'integer', 'exists:sewing_pick_lines,id'],
             'lines.*.qty_ok' => ['nullable', 'numeric', 'min:0'],
@@ -258,6 +262,24 @@ class SewingReturnController extends Controller
             return back()->withErrors($errors)->withInput();
         }
 
+        // 🔹 Hitung biaya sewing (rate/fee) berdasarkan total OK di dokumen ini
+        $totalOkAll = (float) $linesInput->sum(function ($row) {
+            return (float) ($row['qty_ok'] ?? 0);
+        });
+
+        $sewingRate = isset($data['sewing_rate'])
+        ? (float) $data['sewing_rate']
+        : 0.0;
+
+        $sewingFee = isset($data['sewing_fee'])
+        ? (float) $data['sewing_fee']
+        : 0.0;
+
+        // Kalau fee kosong tapi ada rate & total OK → hitung otomatis
+        if ($sewingFee <= 0 && $sewingRate > 0 && $totalOkAll > 0) {
+            $sewingFee = $sewingRate * $totalOkAll;
+        }
+
         // 🔹 SIMPAN DATA + MUTASI STOK via mutateItem (status = posted)
         DB::beginTransaction();
 
@@ -300,7 +322,7 @@ class SewingReturnController extends Controller
                 ]
             );
 
-            // Header langsung posted
+            // Header langsung posted (+ simpan info biaya sewing)
             $header = SewingReturn::create([
                 'code' => $code,
                 'date' => $date,
@@ -310,6 +332,8 @@ class SewingReturnController extends Controller
                 'notes' => $data['notes'] ?? null,
                 'status' => 'posted',
                 'posted_at' => Carbon::now(),
+                'sewing_rate' => $sewingRate > 0 ? $sewingRate : null,
+                'sewing_fee' => $sewingFee > 0 ? $sewingFee : null,
             ]);
 
             // Detail + mutasi stok per baris (pakai mutateItem)
@@ -397,11 +421,14 @@ class SewingReturnController extends Controller
                 }
             }
 
+            // 🔥 Catat biaya sewing ke production_costs (kalau sewing_fee > 0)
+            $this->recordSewingCost($header);
+
             DB::commit();
 
             return redirect()
                 ->route('production.sewing_returns.show', $header->id)
-                ->with('success', 'Setor jahit berhasil disimpan & langsung diposting. Stok & mutasi sudah tercatat.');
+                ->with('success', 'Setor jahit berhasil disimpan & langsung diposting. Stok, mutasi & biaya sewing sudah tercatat.');
         } catch (\Throwable $e) {
             DB::rollBack();
             report($e);
@@ -409,6 +436,59 @@ class SewingReturnController extends Controller
             return back()
                 ->withErrors(['msg' => 'Error saat simpan & posting setor jahit: ' . $e->getMessage()])
                 ->withInput();
+        }
+    }
+
+    /**
+     * Catat biaya sewing ke production_costs, dibagi per LOT berdasarkan Qty OK.
+     */
+    protected function recordSewingCost(SewingReturn $header): void
+    {
+        $totalFee = (float) ($header->sewing_fee ?? 0);
+
+        if ($totalFee <= 0) {
+            return;
+        }
+
+        $header->loadMissing('lines');
+
+        // Hanya baris OK > 0
+        $lines = $header->lines->filter(fn($ln) => (float) $ln->qty_ok > 0);
+
+        if ($lines->isEmpty()) {
+            return;
+        }
+
+        // ==== GROUP BY ITEM ID ====
+        $grouped = $lines->groupBy('item_id');
+
+        $totalOkAll = $lines->sum('qty_ok');
+        if ($totalOkAll <= 0) {
+            return;
+        }
+
+        foreach ($grouped as $itemId => $rows) {
+            $qtyItem = (float) $rows->sum('qty_ok');
+
+            if ($qtyItem <= 0) {
+                continue;
+            }
+
+            // Proporsi biaya sewing untuk item ini
+            $amount = $totalFee * ($qtyItem / $totalOkAll);
+            $cpu = $amount / max(1, $qtyItem);
+
+            \App\Models\ProductionCost::create([
+                'lot_id' => null, // tidak pakai LOT
+                'item_id' => $itemId, // biaya per item
+                'stage' => 'sewing',
+                'qty_base' => $qtyItem,
+                'amount' => $amount,
+                'cost_per_unit' => $cpu,
+                'source_type' => 'sewing_return',
+                'source_id' => $header->id,
+                'notes' => 'Biaya sewing dari setor ' . $header->code,
+            ]);
         }
     }
 

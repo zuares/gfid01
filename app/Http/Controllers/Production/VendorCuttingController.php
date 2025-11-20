@@ -10,6 +10,7 @@ use App\Models\Item;
 use App\Models\Lot;
 use App\Models\ProductionBatch;
 use App\Models\ProductionBatchMaterial;
+use App\Models\ProductionCost;
 use Illuminate\Http\Request;
 
 class VendorCuttingController extends Controller
@@ -240,6 +241,9 @@ class VendorCuttingController extends Controller
             'bundles.*.qty_cut' => ['required', 'numeric', 'min:1'],
             'bundles.*.unit' => ['required', 'string', 'max:16'],
             'bundles.*.notes' => ['nullable', 'string', 'max:255'],
+
+            'cutting_rate' => ['nullable', 'numeric', 'min:0'],
+            'cutting_fee' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $bundlesInput = $data['bundles'];
@@ -278,6 +282,25 @@ class VendorCuttingController extends Controller
             ]);
         }
 
+        $totalQtyCut = $batch->bundles()->sum('qty_cut');
+
+        $cuttingRate = isset($data['cutting_rate'])
+        ? (float) $data['cutting_rate']
+        : 1000;
+
+        $cuttingFee = isset($data['cutting_fee'])
+        ? (float) $data['cutting_fee']
+        : 0.0;
+
+// Kalau cutting_fee kosong tapi ada rate dan qty → hitung otomatis
+        if ($cuttingFee <= 0 && $cuttingRate > 0 && $totalQtyCut > 0) {
+            $cuttingFee = $cuttingRate * $totalQtyCut;
+        }
+// Simpan ke batch (boleh saja 0/null kalau belum ada datanya)
+        $batch->cutting_rate = $cuttingRate > 0 ? $cuttingRate : null;
+        $batch->cutting_fee = $cuttingFee > 0 ? $cuttingFee : null;
+        $batch->save();
+
         return redirect()
             ->route('production.vendor_cutting.batches.show', $batch->id)
             ->with('success', 'Hasil cutting per iket berhasil disimpan.');
@@ -311,11 +334,66 @@ class VendorCuttingController extends Controller
             //    lewat method QC update(), supaya:
             //    - qty_ok yang dipakai
             //    - punya lot_id & cutting_bundle_id per bundle
+            $this->recordCuttingCost($batch);
         });
 
         return redirect()
             ->route('production.vendor_cutting.batches.show', $batch->id)
             ->with('success', 'Batch berhasil dikirim ke QC!');
+    }
+
+    protected function recordCuttingCost($batch): void
+    {
+        $totalFee = (float) ($batch->cutting_fee ?? 0);
+
+        if ($totalFee <= 0) {
+            return;
+        }
+
+        // Ambil total qty_cut per LOT dari bundles
+        $lotQty = $batch->bundles()
+            ->selectRaw('lot_id, SUM(qty_cut) as total_qty')
+            ->groupBy('lot_id')
+            ->get();
+
+        if ($lotQty->isEmpty()) {
+            return;
+        }
+
+        $totalQtyAll = (float) $lotQty->sum('total_qty');
+        if ($totalQtyAll <= 0) {
+            return;
+        }
+
+        foreach ($lotQty as $row) {
+            $lotId = (int) $row->lot_id;
+            $qtyLot = (float) $row->total_qty;
+
+            if ($qtyLot <= 0) {
+                continue;
+            }
+
+            // Ambil item hasil cutting utk LOT ini
+            $itemId = $batch->bundles()
+                ->where('lot_id', $lotId)
+                ->value('item_id'); // <--- ambil item_id dari bundle
+            // Proporsi biaya untuk LOT ini
+            $amount = $totalFee * ($qtyLot / $totalQtyAll);
+            $cpu = $amount / max(1, $qtyLot);
+
+            ProductionCost::create([
+                'lot_id' => $lotId,
+                'item_id' => null, // <--- sudah isi item_id
+                'stage' => 'cutting',
+                'qty_base' => $qtyLot,
+                'amount' => $amount,
+                'cost_per_unit' => $cpu,
+
+                'source_type' => 'vendor_cutting_batch',
+                'source_id' => $batch->id,
+                'notes' => 'Biaya cutting batch ' . $batch->code,
+            ]);
+        }
     }
 
     /**
@@ -349,4 +427,12 @@ class VendorCuttingController extends Controller
             $bundleNo
         );
     }
+
+    /**
+     * Catat biaya cutting ke production_costs.
+     *
+     * @param  \App\Models\VendorCuttingBatch  $batch
+     *   ❗ Sesuaikan tipe model dengan model header vendor cutting kamu.
+     */
+
 }

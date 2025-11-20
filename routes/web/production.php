@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Production\FinishingController;
+use App\Http\Controllers\Production\HppController;
 use App\Http\Controllers\Production\PackingJobController;
 use App\Http\Controllers\Production\SewingPickController;
 use App\Http\Controllers\Production\SewingReportController;
@@ -168,4 +169,24 @@ Route::middleware(['auth', 'role:owner,admin']) // plus middleware role kalau ad
         Route::get('finishing/create', [FinishingController::class, 'create'])->name('finishing.create');
         Route::post('finishing', [FinishingController::class, 'store'])->name('finishing.store');
         Route::get('finishing/{finishingJob}', [FinishingController::class, 'show'])->name('finishing.show');
+    });
+
+Route::prefix('production')
+    ->name('production.')
+    ->middleware(['auth'])
+    ->group(function () {
+
+        // ... route lain produksi
+
+        // HPP INDEX
+        Route::get('hpp', [HppController::class, 'index'])
+            ->name('hpp.index');
+
+        // DETAIL per ITEM
+        Route::get('hpp/items/{item}', [HppController::class, 'showItem'])
+            ->name('hpp.items.show');
+
+        // DETAIL per LOT
+        Route::get('hpp/lots/{lot}', [HppController::class, 'showLot'])
+            ->name('hpp.lots.show');
     });

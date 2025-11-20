@@ -35,7 +35,7 @@
         @media (max-width: 767.98px) {
 
             /* Di mobile: hanya tampilkan No, Item, Qty, QC, Catatan
-                   Kolom Bundle, LOT, Unit disembunyikan */
+                           Kolom Bundle, LOT, Unit disembunyikan */
             .col-mobile-hide {
                 display: none;
             }
@@ -55,6 +55,17 @@
                 <div class="help">
                     Stage: {{ $batch->stage }} • Status: {{ $batch->status }}
                 </div>
+                @if (!is_null($batch->qty_planned ?? null))
+                    <div class="help">
+                        Qty Planned (header):
+                        <span class="mono">{{ number_format($batch->qty_planned, 2) }}</span>
+                    </div>
+                @endif
+
+                {{-- info tambahan: berapa LOT & ringkasan --}}
+                <div class="help">
+                    LOT dipakai: <span class="mono">{{ $totalLotUsed }}</span>
+                </div>
             </div>
         </div>
 
@@ -69,36 +80,60 @@
             </div>
         @endif
 
-        {{-- Info singkat bahan --}}
+        {{-- Info singkat bahan per LOT --}}
         <div class="card mb-3">
-            <div class="p-3 border-bottom">
-                <div class="fw-semibold">Bahan (LOT) di Batch</div>
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="fw-semibold">Bahan (LOT) di Batch</div>
+                    <div class="help">
+                        Menampilkan LOT yang dipakai dan item apa saja yang memakai LOT tersebut.
+                    </div>
+                </div>
+                <div class="text-end help d-none d-md-block">
+                    Total LOT: <span class="mono">{{ $totalLotUsed }}</span>
+                </div>
             </div>
+
             <div class="table-responsive" style="max-height: 220px;">
                 <table class="table table-sm mb-0 align-middle">
                     <thead>
                         <tr>
                             <th class="sticky">LOT</th>
-                            <th class="sticky">Item</th>
-                            <th class="sticky text-end">Qty Planned</th>
+                            <th class="sticky">Item yang Memakai LOT</th>
+                            <th class="sticky text-end">Total Qty Planned</th>
                             <th class="sticky">Unit</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @forelse ($batch->materials as $m)
+                        @forelse ($lotsGrouped as $lot)
                             <tr>
-                                <td class="mono">{{ $m->lot->code ?? '-' }}</td>
-                                <td>
-                                    <div class="fw-semibold">{{ $m->item->name ?? '-' }}</div>
-                                    <div class="help mono">{{ $m->item_code }}</div>
+                                <td class="mono">
+                                    {{ $lot['lot_code'] ?? '-' }}
                                 </td>
-                                <td class="text-end mono">{{ number_format($m->qty_planned, 2) }}</td>
-                                <td>{{ $m->unit }}</td>
+                                <td>
+                                    @if (!empty($lot['items']) && $lot['items']->count())
+                                        <div class="d-flex flex-wrap gap-1">
+                                            @foreach ($lot['items'] as $code)
+                                                <span class="badge bg-light text-dark border mono">
+                                                    {{ $code }}
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <span class="help">Tidak ada item</span>
+                                    @endif
+                                </td>
+                                <td class="text-end mono">
+                                    {{ number_format($lot['total_qty_planned'] ?? 0, 2) }}
+                                </td>
+                                <td>
+                                    {{ $lot['unit'] ?? '-' }}
+                                </td>
                             </tr>
                         @empty
                             <tr>
                                 <td colspan="4" class="text-center text-muted small py-3">
-                                    Tidak ada data bahan.
+                                    Tidak ada data LOT / bahan.
                                 </td>
                             </tr>
                         @endforelse
@@ -110,11 +145,8 @@
         <form method="POST" action="{{ route('production.wip_cutting_qc.update', $batch->id) }}">
             @csrf
 
-            {{-- 🔹 Kirim qty_planned sekali saja ke controller (total semua material) --}}
-            @php
-                $qtyPlannedTotal = $batch->materials->sum('qty_planned');
-            @endphp
-            <input type="hidden" name="qty_planned" value="{{ $qtyPlannedTotal }}">
+            {{-- 🔹 Kirim qty_planned dari header batch (BUKAN hasil looping) --}}
+            <input type="hidden" name="qty_planned" value="{{ $batch->qty_planned ?? 0 }}">
 
             <div class="card mb-3">
                 <div class="p-3 border-bottom d-flex align-items-center">

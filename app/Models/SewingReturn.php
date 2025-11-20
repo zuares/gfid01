@@ -18,6 +18,8 @@ class SewingReturn extends Model
         'notes',
         'created_by',
         'posted_at',
+        'sewing_rate', // ⬅️ tambah
+        'sewing_fee', // ⬅️ tambah
     ];
 
     protected $casts = [

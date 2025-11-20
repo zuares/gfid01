@@ -185,6 +185,49 @@
                                 placeholder="Catatan umum (opsional)">{{ old('notes') }}</textarea>
                         </div>
                     </div>
+
+                    <hr class="my-3">
+
+                    {{-- BIAYA SEWING --}}
+                    <div class="row g-3 align-items-end">
+                        {{-- TOTAL QTY OK (auto, display saja) --}}
+                        <div class="col-md-3">
+                            <label class="form-label small">Total Qty OK (dokumen ini)</label>
+                            <div class="form-control form-control-sm mono bg-light-subtle">
+                                <span id="totalOkDisplay">0,00</span> pcs
+                            </div>
+                            <div class="help mt-1">
+                                Otomatis dijumlah dari kolom <span class="mono">Qty OK</span> baris yang dicentang.
+                            </div>
+                        </div>
+
+                        {{-- SEWING RATE --}}
+                        <div class="col-md-3">
+                            <label for="sewing_rate" class="form-label small">Tarif Jahit per pcs</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text mono">@</span>
+                                <input type="number" step="0.01" min="0" name="sewing_rate" id="sewing_rate"
+                                    class="form-control form-control-sm mono text-end" value="{{ old('sewing_rate') }}"
+                                    placeholder="0,00">
+                            </div>
+                            <div class="help mt-1">
+                                Opsional. Jika diisi &amp; <span class="mono">Total Qty OK</span> &gt; 0,
+                                maka <strong>Total Upah Sewing</strong> dihitung otomatis.
+                            </div>
+                        </div>
+
+                        {{-- TOTAL SEWING FEE --}}
+                        <div class="col-md-3">
+                            <label for="sewing_fee" class="form-label small">Total Upah Sewing</label>
+                            <input type="number" step="0.01" min="0" name="sewing_fee" id="sewing_fee"
+                                class="form-control form-control-sm mono text-end" value="{{ old('sewing_fee') }}"
+                                placeholder="0,00">
+                            <div class="help mt-1">
+                                Bisa diisi manual. Kalau kosong, akan diisi dari
+                                <span class="mono">rate × Qty OK</span>.
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -226,7 +269,7 @@
                                         $returned = (float) ($line->total_ok ?? 0) + (float) ($line->total_reject ?? 0);
                                         $remain = max(0, $picked - $returned);
 
-                                        $stock = $line->stock; // relasi InventoryStock
+                                        $stock = $line->stock ?? null; // kalau tidak eager load, akan lazy
                                     @endphp
                                     <tr>
                                         {{-- CHECKBOX --}}
@@ -358,6 +401,73 @@
 @push('scripts')
     <script>
         (function() {
+            let sewingFeeManual = false; // kalau user sudah edit total fee, jangan dioverride otomatis
+
+            function parseNumber(val) {
+                if (!val) return 0;
+                return parseFloat(val) || 0;
+            }
+
+            function formatIdNumber(num) {
+                // tampil rapi ala Indonesia, tapi simple aja
+                try {
+                    return num.toLocaleString('id-ID', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                    });
+                } catch (e) {
+                    return num.toFixed(2);
+                }
+            }
+
+            function recalcTotalOk() {
+                const qtyInputs = document.querySelectorAll('.qty-ok-input');
+                let totalOk = 0;
+
+                qtyInputs.forEach(function(input) {
+                    const idx = input.dataset.index;
+                    const checkbox = document.querySelector('.line-checkbox[data-index="' + idx + '"]');
+                    if (!checkbox || !checkbox.checked) {
+                        return;
+                    }
+                    const val = parseNumber(input.value);
+                    if (val > 0) {
+                        totalOk += val;
+                    }
+                });
+
+                const span = document.getElementById('totalOkDisplay');
+                if (span) {
+                    span.textContent = formatIdNumber(totalOk);
+                    span.dataset.totalOk = totalOk; // simpan mentahnya
+                }
+
+                recalcSewingFee(); // setiap total OK berubah, coba hitung fee (kalau belum manual)
+            }
+
+            function recalcSewingFee() {
+                if (sewingFeeManual) {
+                    return; // user sudah edit manual, jangan diubah lagi
+                }
+
+                const span = document.getElementById('totalOkDisplay');
+                const totalOk = span ? parseNumber(span.dataset.totalOk) : 0;
+
+                const rateInput = document.getElementById('sewing_rate');
+                const feeInput = document.getElementById('sewing_fee');
+
+                if (!rateInput || !feeInput) return;
+
+                const rate = parseNumber(rateInput.value);
+                if (rate <= 0 || totalOk <= 0) {
+                    // kalau tidak ada data cukup, biarkan kosong
+                    return;
+                }
+
+                const fee = rate * totalOk;
+                feeInput.value = fee.toFixed(2);
+            }
+
             document.addEventListener('change', function(e) {
                 // Kalau checkbox baris berubah
                 if (e.target.classList.contains('line-checkbox')) {
@@ -367,6 +477,42 @@
                         qtyInput.focus();
                         qtyInput.select();
                     }
+                    recalcTotalOk();
+                }
+
+                // Kalau Qty OK berubah → hitung ulang total OK
+                if (e.target.classList.contains('qty-ok-input')) {
+                    recalcTotalOk();
+                }
+
+                // Kalau rate berubah → kita anggap boleh override fee (kecuali user sudah manual)
+                if (e.target.id === 'sewing_rate') {
+                    // reset flag manual supaya fee bisa dihitung ulang dari rate baru
+                    sewingFeeManual = false;
+                    recalcSewingFee();
+                }
+            });
+
+            document.addEventListener('input', function(e) {
+                // perubahan qty OK real-time (kalau mau)
+                if (e.target.classList.contains('qty-ok-input')) {
+                    recalcTotalOk();
+                }
+
+                // kalau user mengetik di fee → anggap manual
+                if (e.target.id === 'sewing_fee') {
+                    sewingFeeManual = true;
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // inisialisasi: hitung total OK awal (kalau ada old input)
+                recalcTotalOk();
+
+                // kalau sudah ada old('sewing_fee') → tandai manual
+                var feeInput = document.getElementById('sewing_fee');
+                if (feeInput && feeInput.value) {
+                    sewingFeeManual = true;
                 }
             });
         })();

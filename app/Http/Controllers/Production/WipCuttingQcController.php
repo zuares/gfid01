@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Production;
 
 use App\Http\Controllers\Controller;
-use App\Models\CuttingBundle;
 use App\Models\ProductionBatch;
 use App\Models\Warehouse;
 use App\Services\InventoryService;
@@ -13,7 +12,6 @@ use Illuminate\Support\Facades\DB;
 /**
  * Proses QC: mark tiap iket OK/Reject, buat/ubah WIP.
  */
-
 class WipCuttingQcController extends Controller
 {
     /**
@@ -30,6 +28,9 @@ class WipCuttingQcController extends Controller
         return view('production.wip_cutting_qc.index', compact('batches'));
     }
 
+    /**
+     * Detail batch (setelah QC / untuk lihat isi).
+     */
     public function show(ProductionBatch $batch)
     {
         // Pastikan ini batch cutting
@@ -57,13 +58,19 @@ class WipCuttingQcController extends Controller
 
     /**
      * Form QC untuk satu batch.
+     *
+     * Di sini sekalian dikirim:
+     *  - totalLotUsed  => berapa LOT unik yang dipakai
+     *  - lotsGrouped   => per LOT: kode LOT, total qty, dan item apa saja yang pakai LOT tsb
      */
     public function edit(ProductionBatch $batch)
     {
+        // Pastikan ini batch cutting
         if ($batch->stage !== 'cutting') {
             abort(404, 'Batch ini bukan batch cutting.');
         }
 
+        // Hanya boleh QC kalau status waiting_qc / qc_in_progress
         if ($batch->status !== 'waiting_qc' && $batch->status !== 'qc_in_progress') {
             abort(403, 'Batch ini tidak dalam status waiting_qc.');
         }
@@ -75,13 +82,52 @@ class WipCuttingQcController extends Controller
             'bundles.item',
         ]);
 
-        return view('production.wip_cutting_qc.edit', compact('batch'));
+        // Hitung LOT yang dipakai + item apa saja yang pakai LOT tsb
+        $lotsGrouped = $batch->materials
+            ->filter(function ($m) {
+                // hanya material yang punya LOT & ITEM
+                return $m->lot && $m->item;
+            })
+            ->groupBy('lot_id')
+            ->map(function ($rows) {
+                $first = $rows->first();
+
+                return [
+                    'lot_id' => $first->lot_id,
+                    'lot_code' => optional($first->lot)->code,
+
+                    // pakai qty_planned kalau ada, fallback ke qty
+                    'total_qty_planned' => (float) $rows->sum(function ($r) {
+                        return $r->qty_planned ?? $r->qty ?? 0;
+                    }),
+
+                    // unit fallback: material.unit → item.unit → 'kg'
+                    'unit' => $first->unit ?? optional($first->item)->unit ?? 'kg',
+
+                    // item code unik yang pakai LOT ini
+                    'items' => $rows->pluck('item.code')
+                        ->filter()
+                        ->unique()
+                        ->values(),
+                ];
+            })
+            ->values();
+
+        $totalLotUsed = $lotsGrouped->count();
+
+        return view('production.wip_cutting_qc.edit', [
+            'batch' => $batch,
+            'lotsGrouped' => $lotsGrouped,
+            'totalLotUsed' => $totalLotUsed,
+        ]);
     }
 
+    /**
+     * Simpan hasil QC Cutting + mutasi stok LOT & WIP-SEW.
+     */
     public function update(Request $request, ProductionBatch $batch, InventoryService $inventory)
     {
-
-        $qtyPlanned = (float) $request->input('qty_planned'); // total planned dari view
+        $qtyPlanned = (float) $request->input('qty_planned', 0);
 
         // Pastikan ini batch cutting & statusnya masih boleh di-QC
         if ($batch->stage !== 'cutting') {
@@ -92,8 +138,13 @@ class WipCuttingQcController extends Controller
             abort(403, 'Batch ini tidak dalam status waiting_qc / qc_in_progress.');
         }
 
-        // Eager load bundles di batch ini
-        $batch->load('bundles');
+        // Load relasi yang dibutuhkan
+        $batch->load([
+            'materials.lot',
+            'materials.item',
+            'bundles.lot',
+            'bundles.item',
+        ]);
 
         $data = $request->validate([
             'bundles' => ['required', 'array'],
@@ -107,11 +158,9 @@ class WipCuttingQcController extends Controller
 
         // 🔎 STEP 0: Validasi awal — reject tidak boleh > qty_cut
         foreach ($data['bundles'] as $row) {
-            /** @var \App\Models\CuttingBundle|null $bundle */
             $bundle = $batch->bundles->firstWhere('id', $row['id']);
 
             if (!$bundle) {
-                // kalau id bundle aneh, skip saja (atau bisa juga dijadikan error)
                 continue;
             }
 
@@ -133,20 +182,14 @@ class WipCuttingQcController extends Controller
                 ['name' => 'WIP Siap Jahit', 'type' => 'wip']
             );
 
-            // 🔹 Gudang asal = gudang cutting (vendor / internal)
+            // 🔹 Gudang asal = gudang cutting
             $fromWarehouseId = $batch->to_warehouse_id;
-
-            // 🔹 Tanggal transaksi (boleh pakai date_received kalau ada)
             $txnDate = $batch->date_received ?? now()->toDateString();
 
-            // Akumulasi qty OK:
-            // 1) per LOT → untuk mengurangi stok kain
-            // 2) per ITEM → untuk menambah stok WIP siap jahit (K7BLK, K5BLK, dst)
-            $lotSummary = []; // [lot_id => ['qty_ok' => float, 'unit' => string]]
+            // 1️⃣ WIP per ITEM (hasil cutting) → dari bundles
             $wipByItem = []; // [item_code => ['item_id' => int, 'qty' => float, 'unit' => string]]
 
             foreach ($data['bundles'] as $row) {
-                /** @var \App\Models\CuttingBundle|null $bundle */
                 $bundle = $batch->bundles->firstWhere('id', $row['id']);
 
                 if (!$bundle) {
@@ -168,67 +211,94 @@ class WipCuttingQcController extends Controller
                 $totalOk += $qtyOk;
                 $totalReject += $qtyReject;
 
-                if ($qtyOk > 0) {
-                    $lotId = $bundle->lot_id;
-                    $unit = $bundle->unit ?? 'pcs';
+                if ($qtyOk <= 0) {
+                    continue;
+                }
 
-                    // 1) Akumulasi per LOT (untuk pemakaian kain)
-                    if (!isset($lotSummary[$lotId])) {
-                        $lotSummary[$lotId] = [
-                            'qty_ok' => 0,
+                // unit fallback: bundle.unit → item.unit → 'pcs'
+                $unit = $bundle->unit ?? optional($bundle->item)->unit ?? 'pcs';
+
+                $itemId = $bundle->item_id;
+                $itemCode = $bundle->item_code ?? optional($bundle->item)->code;
+
+                if ($itemCode && $itemId) {
+                    if (!isset($wipByItem[$itemCode])) {
+                        $wipByItem[$itemCode] = [
+                            'item_id' => $itemId,
+                            'qty' => 0,
                             'unit' => $unit,
                         ];
                     }
-                    $lotSummary[$lotId]['qty_ok'] += $qtyOk;
-
-                    // 2) Akumulasi per ITEM (untuk stok WIP-SEW)
-                    $itemCode = $bundle->item_code; // K7BLK / K5BLK / K3BLK
-                    $itemId = $bundle->item_id;
-
-                    if ($itemCode && $itemId) {
-                        if (!isset($wipByItem[$itemCode])) {
-                            $wipByItem[$itemCode] = [
-                                'item_id' => $itemId,
-                                'qty' => 0,
-                                'unit' => $unit,
-                            ];
-                        }
-                        $wipByItem[$itemCode]['qty'] += $qtyOk;
-                    }
+                    $wipByItem[$itemCode]['qty'] += $qtyOk;
                 }
             }
-            // 🔥 STEP 2A: Kurangi stok kain per LOT di gudang cutting
-            if ($fromWarehouseId) {
-                foreach ($lotSummary as $lotId => $info) {
+
+            // 2️⃣ Pemakaian LOT (bahan kain) → dari tabel materials, BUKAN dari bundles
+            //    Supaya 1 LOT cuma dikurang sekali sesuai qty_planned (kg/meter),
+            //    tidak dobel karena banyak bundle.
+            $lotSummary = $batch->materials
+                ->filter(function ($m) {
+                    return $m->lot; // hanya yang punya LOT
+                })
+                ->groupBy('lot_id')
+                ->map(function ($rows) {
+                    $first = $rows->first();
+
+                    return [
+                        'lot_id' => $first->lot_id,
+                        'lot_code' => optional($first->lot)->code,
+                        // total bahan yang dipakai dari LOT ini (kg/meter)
+                        'qty_used' => (float) $rows->sum(function ($r) {
+                            return $r->qty_planned ?? $r->qty ?? 0;
+                        }),
+                        // unit bahan: material.unit → item.unit → 'kg'
+                        'unit' => $first->unit ?? optional($first->item)->unit ?? 'kg',
+                    ];
+                })
+                ->values()
+                ->all(); // jadi array biasa
+
+            // 🔥 STEP 2A: Kurangi stok kain per LOT di gudang cutting (RAW → LOT BAHAN)
+            if ($fromWarehouseId && !empty($lotSummary)) {
+                foreach ($lotSummary as $row) {
+                    if (($row['qty_used'] ?? 0) <= 0) {
+                        continue;
+                    }
+
+                    // pakai method LOT-based yang sudah ada: mutate()
                     $inventory->mutate(
-                        $fromWarehouseId,
-                        $lotId,
-                        'CUTTING_USE', // tipe mutasi pemakaian kain
-                        0, // qty_in
-                        $info['qty_ok'], // qty_out
-                        $info['unit'],
-                        $batch->code,
-                        'Pemakaian kain hasil QC Cutting',
-                        $txnDate,
-                        'raw'
+                        warehouseId: $fromWarehouseId,
+                        lotId: $row['lot_id'],
+                        type: 'CUTTING_USE', // tipe mutasi pemakaian kain
+                        qtyIn: 0.0,
+                        qtyOut: $row['qty_used'],
+                        unit: $row['unit'],
+                        refCode: $batch->code,
+                        note: 'Pemakaian kain hasil QC Cutting (berdasarkan qty_planned per LOT)',
+                        date: $txnDate,
+                        category: 'raw'
                     );
                 }
             }
 
-            // 🔥 STEP 2B: Tambah stok WIP siap jahit di WIP-SEW per item (K7BLK, K5BLK, ...)
+            // 🔥 STEP 2B: Tambah stok WIP siap jahit di WIP-SEW per item (hasil cutting: K7BLK, K5BLK, ...)
             foreach ($wipByItem as $itemCode => $info) {
+                if ($info['qty'] <= 0) {
+                    continue;
+                }
+
                 $inventory->mutateItem(
-                    $wipSewWarehouse->id,
-                    $info['item_id'],
-                    $itemCode,
-                    'WIP_CUT_IN', // tipe mutasi masuk WIP dari cutting
-                    $info['qty'], // qty_in
-                    0, // qty_out
-                    $info['unit'],
-                    $batch->code,
-                    'Hasil QC Cutting OK → WIP-SEW (per item)',
-                    $txnDate,
-                    'wip'
+                    warehouseId: $wipSewWarehouse->id,
+                    itemId: $info['item_id'],
+                    itemCode: $itemCode,
+                    type: 'WIP_CUT_IN', // tipe mutasi masuk WIP dari cutting
+                    qtyIn: $info['qty'],
+                    qtyOut: 0.0,
+                    unit: $info['unit'],
+                    refCode: $batch->code,
+                    note: 'Hasil QC Cutting OK → WIP-SEW (per item)',
+                    date: $txnDate,
+                    category: 'wip'
                 );
             }
 
